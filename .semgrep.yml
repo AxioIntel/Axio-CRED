@@ -27,5 +27,5 @@ rules:
     message: Spawn a fixed executable with an argument array; do not enable shell parsing.
     patterns:
       - pattern-either:
-          - pattern: spawn($CMD, $ARGS, {..., shell: true, ...})
-          - pattern: spawnSync($CMD, $ARGS, {..., shell: true, ...})
+          - pattern: 'spawn($CMD, $ARGS, {..., shell: true, ...})'
+          - pattern: 'spawnSync($CMD, $ARGS, {..., shell: true, ...})'
