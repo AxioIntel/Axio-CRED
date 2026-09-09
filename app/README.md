@@ -2,9 +2,13 @@
 
 **Current product, architecture and delivery baseline:** [PRODUCT-ARCHITECTURE.md](PRODUCT-ARCHITECTURE.md), including current and target ER diagrams. [ARCHITECTURE-VALIDATION.md](ARCHITECTURE-VALIDATION.md) records the local verification. [CONVERSATION-AUDIT.md](CONVERSATION-AUDIT.md) is the earlier requirement history.
 
+**Local recurring checks are now available:** Business every 12 hours and Growth every 6 hours, enabled per monitored business beside the collection controls. See [scheduled monitoring](../docs/scheduled-monitoring.md) for restart behavior, change detection and the local-only boundary. This supersedes older “scheduling not implemented” notes below.
+
 The customer app is in this folder; the repository Go scraper is the chosen public-data collector. The official Places collection path is disabled.
 
 ## Local preview
+
+For this Windows checkout's verified runtime, dedicated ports and isolated database, see [local setup](../docs/local-setup.md). The running dashboard is at http://127.0.0.1:5187/overview; the examples below use the default ports.
 
 From this folder in PowerShell:
 

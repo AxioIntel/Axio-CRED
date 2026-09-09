@@ -5,6 +5,14 @@ const older:Dataset={...demoDataset,id:"before",source:"scraper_import",collecte
 const newer:Dataset={...older,id:"after",collectedAt:"2026-09-06T12:00:00Z",listings:[{...older.listings[0],rating:4.5,reviewCount:115,phone:"changed",reviews:[...older.listings[0].reviews,{...older.listings[0].reviews[0],id:"new-to-sample",rating:2}]}]};
 function data(datasets:Dataset[]):MonitoringData{return {businesses:[],watch:{baselineKey:null,targets:[{id:"target",name:"Competitor",listingKey:"place:one",mapsUrl:null}]},datasets,overview:{} as any};}
 describe("saved-snapshot alert rules",()=>{
+ it("includes positive newly observed reviews and reports missing records without claiming removal",()=>{
+   const changed:Dataset={...newer,listings:[{...newer.listings[0],reviewCount:99,reviews:[{...newer.listings[0].reviews[1],rating:5}]}]};
+   const input=data([older,changed]);const signals=detectChanges(monitoredEntities(input),input.datasets);
+   expect(signals.some(s=>s.type==="new_review"&&s.reviewId==="new-to-sample")).toBe(true);
+   const missing=signals.find(s=>s.type==="missing_reviews")!;expect(missing.detail).toContain("removal is not confirmed");expect(missing.datasetId).toBe("before");
+   expect(signals.some(s=>s.type==="count_decrease")).toBe(true);
+   const switched={...changed,collection:{provider:"outscraper" as const}};expect(detectChanges(monitoredEntities(data([older,switched])),[older,switched]).some(s=>s.type==="missing_reviews"||s.type==="new_review")).toBe(false);
+ });
  it("does not create new-review alerts solely because the collector changed",()=>{const switched:Dataset={...newer,collection:{provider:"outscraper"}};const input=data([older,switched]);const signals=detectChanges(monitoredEntities(input),input.datasets);expect(signals.some(s=>s.type==="low_review")).toBe(false);expect(signals.some(s=>s.type==="burst")).toBe(true);});
  it("requires two timed snapshots and never treats first collection as a new-review event",()=>{for(const datasets of [[older],[{...older,collectedAt:null},newer],[{...older,source:"illustrative" as const},newer]])expect(detectChanges(monitoredEntities(data(datasets)),datasets)).toEqual([]);});
  it("detects review observations, rating drop, count jump and public profile edits with source references",()=>{const input=data([older,newer]);const signals=detectChanges(monitoredEntities(input),input.datasets);expect(signals.map(s=>s.type)).toEqual(["low_review","burst","rating","profile"]);expect(signals.filter(s=>s.type==="low_review")).toHaveLength(1);expect(signals[0].reviewId).toBe("new-to-sample");expect(signals[0].detail).toContain("posting time is not established");expect(signals[0].datasetId).toBe("after");});

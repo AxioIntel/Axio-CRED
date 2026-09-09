@@ -3,6 +3,10 @@ import {demoDataset} from "./intelligence-data";
 import {observedReviewers,publicProfileChanges,snapshotHistory} from "./evidence-insights";
 describe("observed evidence insights",()=>{
   const listing={...demoDataset.listings[0],placeId:"ChIJone"};
+  it("detects a renamed business without mistaking missing contact fields for changes",()=>{
+    const changes=publicProfileChanges(listing,{...listing,name:"Updated business name",phone:null,website:null});
+    expect(changes).toEqual([{field:"name",before:listing.name,after:"Updated business name"}]);
+  });
   it("excludes unknown collection dates and unrelated listing identities from history",()=>{
     const row={...demoDataset,source:"scraper_import" as const,listings:[listing]};
     const history=snapshotHistory(listing,[{...row,id:"new",collectedAt:"2026-09-06T10:00:00Z"},{...row,id:"unknown"},{...row,id:"old",collectedAt:"2026-09-04T10:00:00Z"},{...row,id:"other",collectedAt:"2026-09-03T10:00:00Z",listings:[{...listing,placeId:"ChIJtwo"}]}]);

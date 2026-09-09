@@ -160,7 +160,9 @@ jobs:
       - name: Fresh schema and repeatable migration
         run: npm run migrate -w backend && npm run migrate -w backend
       - name: History, workspace FKs, retry safety and rollback
-        run: node --import tsx scripts/verify-evidence-index.mjs
+        run: |
+          node --import tsx scripts/verify-evidence-index.mjs
+          node --import tsx scripts/verify-monitoring-schedules.mjs
 
   container:
     name: Application & container build

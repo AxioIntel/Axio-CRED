@@ -40,7 +40,7 @@ describe("evidence-backed reputation dashboards",()=>{
     fireEvent.change(screen.getByLabelText("Response draft for Sample customer B"),{target:{value:"Thank you. Please contact our team so we can discuss the wait."}});
     fireEvent.click(copy);await screen.findByText(/Copied. Review and publish/);
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("Thank you. Please contact our team so we can discuss the wait.");
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(fetch).mock.calls.every(([,options])=>!options?.method||options.method==="GET")).toBe(true);
   });
   it("uses saved AI findings for flags and exposes the corresponding report kit",async()=>{
     const report:Report={id:"assessment",datasetId:"test",listingId:listing.id,summary:"One concern to investigate.",model:"test",createdAt:dataset.collectedAt!,collectedAt:dataset.collectedAt,analyzedCount:2,collectedCount:2,reportedCount:386,truncatedCount:0,inputHash:"test",usage:{inputTokens:10,outputTokens:10},reviewIds:{r1:listing.reviews[1].id},reviews:[{reviewRef:"r1",priority:"medium",policy:"off_topic",reasoning:"Synthetic policy observation.",alternativeExplanation:"Context may be missing.",evidence:[],nextStep:"Verify original context."}]};

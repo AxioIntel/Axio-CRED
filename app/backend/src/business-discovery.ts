@@ -12,7 +12,7 @@ import { fallbackReason, OutscraperFallback, type FallbackProvider } from "./out
 const appDir = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const jobsDir = resolve(appDir, ".dev/discovery");
 const binary = resolve(appDir, ".tools/axiocred-scraper.exe");
-export interface DiscoveryJob { id:string; query:string; status:"running"|"completed"|"failed"; startedAt:string; dataset?:IntelligenceDataset; error?:string; expectedPlaceId?:string; cached?:boolean; extendedReviews?:boolean; coverage?:ReturnType<typeof collectionCoverage>; progress?:string; fallback?:{reason:string;status:"disabled"|"running"|"completed"|"failed";message:string} }
+export interface DiscoveryJob { id:string; query:string; status:"running"|"completed"|"failed"; startedAt:string; dataset?:IntelligenceDataset; error?:string; expectedPlaceId?:string; cached?:boolean; extendedReviews?:boolean; allowPaidFallback?:boolean; coverage?:ReturnType<typeof collectionCoverage>; progress?:string; fallback?:{reason:string;status:"disabled"|"running"|"completed"|"failed";message:string} }
 export type DiscoveryRunner = (query:string, directory:string, extendedReviews?:boolean)=>Promise<unknown[]>;
 export const validPlaceId=(value:unknown):value is string=>typeof value==="string"&&/^[A-Za-z0-9_-]{10,300}$/.test(value);
 export function placeIdMapsUrl(placeId:string){const url=new URL("https://www.google.com/maps/search/");url.searchParams.set("api","1");url.searchParams.set("query","Google");url.searchParams.set("query_place_id",placeId);return url.href;}
@@ -72,13 +72,14 @@ export class BusinessDiscovery {
     private fallback:FallbackProvider|null=runner===runLocalDiscovery?new OutscraperFallback():null){}
   async fallbackStatus(){return this.fallback?.status()??{configured:false,enabled:false,ready:false,message:"Outscraper fallback is not configured.",perJob:0,monthly:0};}
   available(){return this.runner!==runLocalDiscovery||(process.env.NODE_ENV!=="production"&&process.platform==="win32"&&existsSync(binary));}
-  async startPlaceId(placeId:string,refresh=false,extendedReviews=false) {
+  isBusy(){return this.active?.status==="running";}
+  async startPlaceId(placeId:string,refresh=false,extendedReviews=false,allowPaidFallback=true) {
     if(!validPlaceId(placeId))throw new Error("Paste only the Place ID from Google’s finder, without a link or spaces.");
     const datasets=(refresh||extendedReviews)?[]:await this.store.listIntelligenceImports();
     for(const dataset of datasets){const listing=dataset.listings.find(row=>row.placeId===placeId);if(listing){return {id:randomUUID(),query:placeId,status:"completed" as const,startedAt:new Date().toISOString(),cached:true,dataset:{...dataset,listings:[listing]}};}}
-    return this.start(placeIdMapsUrl(placeId),placeId,extendedReviews);
+    return this.start(placeIdMapsUrl(placeId),placeId,extendedReviews,allowPaidFallback);
   }
-  async start(query:string,expectedPlaceId?:string,extendedReviews=false) {
+  async start(query:string,expectedPlaceId?:string,extendedReviews=false,allowPaidFallback=true) {
     if(!validDiscoveryQuery(query))throw new Error("Enter a business name and city, or a Google Maps/share link.");
     // `ready` describes NEW budget, not an already-reserved request. collect()
     // owns admission and can resume pending work even when the allowance is full.
@@ -86,8 +87,8 @@ export class BusinessDiscovery {
       const status=expectedPlaceId?await this.fallbackStatus():null;
       if(!status?.enabled||!status.configured)throw new Error("The built-in collector is unavailable and paid fallback is not enabled. Set up the local runtime before searching.");
     }
-    if(this.active?.status==="running"){if(this.active.query===query.trim()&&Boolean(this.active.extendedReviews)===extendedReviews)return this.active;throw new Error("Another search is running. Wait for it to finish, then try again.");}
-    const job:DiscoveryJob={id:randomUUID(),query:query.trim(),status:"running",startedAt:new Date().toISOString(),expectedPlaceId,extendedReviews};
+    if(this.active?.status==="running"){if(this.active.query===query.trim()&&Boolean(this.active.extendedReviews)===extendedReviews&&(this.active.allowPaidFallback!==false)===allowPaidFallback)return this.active;throw new Error("Another search is running. Wait for it to finish, then try again.");}
+    const job:DiscoveryJob={id:randomUUID(),query:query.trim(),status:"running",startedAt:new Date().toISOString(),expectedPlaceId,extendedReviews,allowPaidFallback};
     this.active=job;this.jobs.set(job.id,job);
     try {await mkdir(resolve(jobsDir,job.id),{recursive:true});await this.persist(job);}
     catch(error){this.active=null;this.jobs.delete(job.id);throw error;}
@@ -118,7 +119,7 @@ export class BusinessDiscovery {
       const log=await readFile(resolve(jobsDir,job.id,"collector.log"),"utf8").catch(()=>"");
       if(dataset)job.coverage=collectionCoverage(dataset.listings,log);
       const reason=fallbackReason(job.expectedPlaceId,Boolean(job.extendedReviews),dataset?.listings[0],Boolean(collectorError));
-      if(reason&&this.fallback){
+      if(reason&&this.fallback&&job.allowPaidFallback!==false){
         const status=await this.fallback.status();
         job.fallback={reason,status:status.enabled?"running":"disabled",message:status.message};
         // collect() can resume a paid request even if its reservation exhausted the allowance.
