@@ -1,4 +1,10 @@
-# PayPal setup — 2026-09-08
+# PayPal setup and release status
+
+As of 2026-09-09, production API routes (including checkout and webhook) return 503 until tenant authorization is implemented. PR #1 fixes event/subscription/entitlement atomicity and verifies rollback and concurrent retries with disposable MySQL. Ownership, cancellation/refund reconciliation and live end-to-end payment tests remain release gates.
+
+## Historical account setup — 2026-09-08
+
+The following account observations were recorded during setup, not revalidated in the documentation update.
 
 Saved credentials authenticated successfully against **live** PayPal. Sandbox returned `401 invalid_client`. Local `.env` now uses `PAYPAL_ENV=live`; these are not sandbox test credentials.
 

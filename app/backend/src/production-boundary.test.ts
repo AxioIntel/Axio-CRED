@@ -13,10 +13,10 @@ describe("production preview boundary",()=>{
     await new Promise<void>(resolve=>server.once("listening",resolve));
     const base=`http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     try {
-      for(const path of ["/api/intelligence/imports","/api/google/locations","/api/session","/api/v1/overview"]){
+      for(const path of ["/api/collections","/api/collections/runtime","/api/intelligence/imports","/api/google/locations","/api/session","/api/v1/overview"]){
         expect((await fetch(base+path)).status).toBe(503);
       }
-      for(const path of ["/api/intelligence/imports","/api/review-analysis","/api/business-search","/api/billing/subscribe","/api/webhooks/paypal"]){
+      for(const path of ["/api/collections","/api/collections/test/cancel","/api/collections/test/retry","/api/intelligence/imports","/api/review-analysis","/api/business-search","/api/billing/subscribe","/api/webhooks/paypal"]){
         expect((await fetch(base+path,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})).status).toBe(503);
       }
       expect((await fetch(base+"/api/health")).status).toBe(200);

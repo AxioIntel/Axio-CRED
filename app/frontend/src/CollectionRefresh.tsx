@@ -8,7 +8,7 @@ export default function CollectionRefresh({listing,onComplete}:{listing:Collecte
   useEffect(()=>{if(!job)return;let stopped=false;let timer:ReturnType<typeof setTimeout>;let failures=0;
     async function poll(){try{const response=await fetch(`/api/business-search/${job}`);const result=await response.json();if(!response.ok)throw new Error(result.error??"Collection status unavailable");if(stopped)return;failures=0;
       if(result.status==="completed"){setJob(null);setBusy(false);setMessage([result.coverage?.message??"Fresh evidence saved. Coverage may still be partial.",result.fallback?.message].filter(Boolean).join(" "));callback.current(result.dataset.id);return;}
-      if(result.status==="failed"){setJob(null);setBusy(false);setMessage(result.error??"Collection failed.");return;}
+      if(result.status==="failed"||result.status==="cancelled"){setJob(null);setBusy(false);setMessage(result.error??(result.status==="cancelled"?"Collection cancelled.":"Collection failed."));return;}
       if(result.progress)setMessage(result.progress);
     }catch(e){if(stopped)return;if(++failures>=5){setJob(null);setBusy(false);setMessage("Could not read collection status. The server job may still be running; refresh saved datasets later.");return;}}
     if(!stopped)timer=setTimeout(()=>void poll(),3000);}

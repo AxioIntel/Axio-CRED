@@ -1,6 +1,6 @@
 # Outscraper fallback — local MVP
 
-Implemented 2026-09-09. **Paid calls remain disabled at the user's request.** The existing local API key was preserved. No live Outscraper collection or credential-validation call was made; execution was tested with injected provider responses.
+Implemented in merged PR #1, reviewed code `9bd026b`, on 2026-09-09. Not deployed. **Paid calls remain disabled at the user's request.** The existing local API key was preserved. No live Outscraper collection or credential-validation call was made; execution was tested with injected provider responses.
 
 ## Configuration
 
@@ -36,7 +36,7 @@ Example: 1,000 collected out of 1,169 reported qualifies for fallback. Four miss
 - Never requests unlimited (`reviewsLimit=0`) collection. No enrichment services are implicitly added.
 - Reserves the entire requested limit before submission in `.dev/outscraper/ledger.json`. Conservatively retains the reservation on empty, failed or uncertain results. It does not assume an ambiguous response was free.
 - Saves a returned request ID before polling. Polls only the fixed provider origin's `/requests/{id}` endpoint; ignores response-supplied URLs and rejects redirects. Submission is never automatically retried after a network failure. Result GETs can be retried.
-- Polling is bounded to approximately 20 minutes (plus network time). A subsequent collection attempt can resume a still-pending provider request less than three hours old after the local collector runs. It does not submit another paid job for that business within 24 hours. Older pending/uncertain/failed reservations require checking the provider dashboard; the cooldown prevents automatic duplicate charges during that window.
+- Polling is bounded to approximately 20 minutes (plus network time). A subsequent collection attempt can resume a still-pending provider request less than three hours old after the local collector runs, or directly if that collector is unavailable. An exhausted monthly allowance does not block resuming an already-reserved request; it still blocks a new paid submission. It does not submit another paid job for that business within 24 hours. Older pending/uncertain/failed reservations require checking the provider dashboard; the cooldown prevents automatic duplicate charges during that window.
 - Completed provider results are cached locally for reuse within the same 24-hour window. Provider-side result expiry does not remove a downloaded result.
 - HTTP 401/402/403 opens a one-hour account cooldown; 429 opens a one-minute cooldown. The per-business 24-hour submission limit still applies. Raw provider error bodies and credentials are not returned to users.
 - A file lock and atomic ledger replacement prevent concurrent local reservations from overrunning the allowance. Corrupt or locked budget storage fails closed.

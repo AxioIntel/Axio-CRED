@@ -11,7 +11,13 @@ const reviewSchema = z.object({
   reply_posted_at_unix_micros:z.number().nonnegative().nullish(),language:text,translated_lang:text,text_translated:text,
   ProfilePicture:text, Images:z.array(z.string()).max(500).nullish()
 });
+const linkSourceSchema=z.object({link:text,source:text});
 const entrySchema = z.object({
+  input_id:text,data_id:text,street_view_url:text,
+  popular_times:z.record(z.string(),z.record(z.string(),z.number().min(0).max(100))).nullish(),
+  credit_cards_accepted:z.array(z.string()).max(100).nullish(),
+  reservations:z.array(linkSourceSchema).max(100).nullish(),order_online:z.array(linkSourceSchema).max(100).nullish(),menu:linkSourceSchema.nullish(),
+  owner:z.object({id:text,name:text,link:text}).nullish(),
   title: z.string().trim().min(1).max(500), place_id: text, cid: text, link: text,
   category: text, categories: z.array(z.string()).max(100).nullish(), address: text,
   latitude: z.number().min(-90).max(90).nullish(), longitude: z.number().min(-180).max(180).nullish(), longtitude: z.number().min(-180).max(180).nullish(),
@@ -66,7 +72,11 @@ export function normalizeImport(payload: unknown) {
         language:missing(review.language),translatedLanguage:missing(review.translated_lang),translatedText:missing(review.text_translated),
         authorPhoto:safeLink(review.ProfilePicture),images:[...new Set((review.Images??[]).map(safeLink).filter((url):url is string=>Boolean(url)))] };
     });
-    return { id: String(index), placeId: missing(entry.place_id), cid: missing(entry.cid), name: entry.title,
+    const links=(rows:z.infer<typeof linkSourceSchema>[]|null|undefined)=>(rows??[]).map(row=>({source:missing(row.source),url:safeLink(row.link)})).filter(row=>row.url);
+    return { inputId:missing(entry.input_id),dataId:missing(entry.data_id),streetViewUrl:safeLink(entry.street_view_url),
+      popularTimes:entry.popular_times??{},creditCards:entry.credit_cards_accepted??[],reservations:links(entry.reservations),orderOnline:links(entry.order_online),menu:links(entry.menu?[entry.menu]:[])[0]??null,
+      owner:entry.owner?{id:missing(entry.owner.id),name:missing(entry.owner.name),url:safeLink(entry.owner.link)}:null,
+      id: String(index), placeId: missing(entry.place_id), cid: missing(entry.cid), name: entry.title,
       mapsUrl: safeLink(entry.link), category: missing(entry.category) ?? entry.categories?.[0] ?? null, address: missing(entry.address),
       latitude: entry.latitude ?? null, longitude: entry.longitude ?? entry.longtitude ?? null,
       rating: entry.review_rating ?? null, reviewCount: entry.review_count ?? null, distribution: entry.reviews_per_rating ?? {},
@@ -80,5 +90,5 @@ export function normalizeImport(payload: unknown) {
     sha256: createHash("sha256").update(JSON.stringify(parsed.entries)).digest("hex"), listings };
 }
 export type IntelligenceDataset = ReturnType<typeof normalizeImport> & { collection?: {
-  provider:"builtin"|"outscraper"; requestId?:string; reason?:string; requestedLimit?:number;
+  provider:"builtin"|"outscraper"; options?:import("./collection-options.js").CollectionOptions;queries?:string[];partial?:boolean;warning?:string; requestId?:string; reason?:string; requestedLimit?:number;
 } };

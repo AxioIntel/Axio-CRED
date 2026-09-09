@@ -4,6 +4,14 @@
 
 The customer app is in this folder; the repository Go scraper is the chosen public-data collector. The official Places collection path is disabled.
 
+Production customer API access returns **503** until tenant authorization exists; only health/readiness API routes remain accessible. Local development continues to work. Implementation through `9bd026b` was merged in [PR #1](https://github.com/AxioIntel/Axio-CRED/pull/1) on 9 September 2026. These documentation corrections are a follow-up; no production deployment is claimed.
+
+## Collecting with the native scraper
+
+Open `/collections` for batch discovery, center/grid searches, language, website-email and extended-review options. Inspect saved datasets in the review library, then select businesses to protect or monitor. The native scraper is primary; broad collection never invokes Outscraper. See [native feature parity and architecture](NATIVE-COLLECTION-ARCHITECTURE.md) for configuration, limits and the complete gosom commit audit.
+
+Optional server configuration is documented in `.env.example`: `NATIVE_SCRAPER_BINARY`, `NATIVE_SCRAPER_PROXIES_FILE`, and bounded worker tuning. No proxy credentials belong in the browser or git.
+
 ## Local preview
 
 From this folder in PowerShell:
@@ -19,7 +27,7 @@ Open http://localhost:5173/competitors for the dedicated watchlist. Add a Google
 
 For a fresh setup, run `scripts/dev-setup.ps1 -DemoOnly`, or `scripts/dev-setup.ps1 -PasswordlessRoot` on this development PC to configure local MySQL. The application password is prompted privately; root credentials are not stored. Existing environment configuration is ignored by Git.
 
-## Test real scraper output
+## Optional advanced import
 
 Choose **Import scraper JSON**. Supports Go Entry arrays, a single Entry, JSONL, or an object with an entries/results array. Each entry must have a title. The UI accepts files below 9 MB; the API allows up to 10 MB and 1,000 listings per import.
 
@@ -73,11 +81,11 @@ The business picker defaults to **Use Place ID**, linking to Google’s hosted P
 
 ## OpenAI review analysis (local MVP)
 
-Set `OPENAI_API_KEY` in `app/.env` (never a VITE_ variable), optionally set `OPENAI_MODEL` (default `gpt-4.1-mini-2025-04-14`), and restart the backend. In Competitors, inspect a collected competitor and click Analyze collected reviews; the same panel appears beside its review evidence. No automatic submissions. Live provider verification requires a configured, funded API project.
+Choose `AI_PROVIDER=azure` with `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_ENDPOINT` and the exact `AZURE_OPENAI_DEPLOYMENT` name, or `AI_PROVIDER=openai` with `OPENAI_API_KEY` and optional `OPENAI_MODEL` (code default `gpt-4.1-mini-2025-04-14`). Configure only the ignored backend `.env`, never VITE_ variables, and restart the backend. Provider/model availability must be verified separately; no latest-model claim is implied. In Competitors, inspect a collected competitor and click Analyze collected reviews; the same panel appears beside its review evidence. No automatic submissions. Live provider verification requires a configured, funded API project.
 
-The Responses API receives at most 30 review records in source order, text capped at 2,400 characters and owner replies at 1,000. Author-name and profile-link fields are omitted; text may contain personal information. `store:false` is used, not a claim of zero provider retention. Results use qualitative investigation priority rather than uncalibrated fake probabilities. Every review reference and evidence quotation is validated; incomplete, refused, malformed or fabricated-quote responses are not saved. Model output is advisory, not proof, and still requires human verification.
+The UI processes the collected corpus in sequential batches of at most 30 review records in source order, text capped at 2,400 characters and owner replies at 1,000. Author-name and profile-link fields are omitted; text may contain personal information. `store:false` is used, not a claim of zero provider retention. Results use qualitative investigation priority rather than uncalibrated fake probabilities. Every review reference and evidence quotation is validated; incomplete, refused, malformed or fabricated-quote responses are not saved. Model output is advisory, not proof, and still requires human verification.
 
-Reports persist in MySQL `review_analyses`, cached by source input, model and prompt version. One in-flight analysis is allowed per API process, same-request retries share it, and output is capped at 12,000 tokens with a 90-second deadline. Run the migration before starting. This fixed local preview still needs tenant auth, retention/deletion, per-tenant budgets and quality evaluation before public launch. A representative labeled dataset would be necessary to calibrate any future probability score.
+Reports persist in MySQL `review_analyses`, cached by source input, model and prompt version. One in-flight analysis is allowed per API process, same-request retries share it, and output is capped at 12,000 tokens with a 120-second deadline per batch. Run the migration before starting. This fixed local preview still needs tenant auth, retention/deletion, per-tenant budgets and quality evaluation before public launch. A representative labeled dataset would be necessary to calibrate any future probability score.
 
 Sources checked 2026-09-06: https://developers.openai.com/api/docs/guides/structured-outputs ; https://developers.openai.com/api/docs/models/gpt-4.1-mini ; https://support.google.com/contributionpolicy/answer/7400114?hl=en ; https://support.google.com/contributionpolicy/answer/7445749 .
 
