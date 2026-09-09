@@ -14,6 +14,7 @@ var suffix = uniqueString(resourceGroup().id)
 var mysqlName = '${prefix}-mysql-${suffix}'
 var storageName = take('ax${replace(prefix, '-', '')}${suffix}', 24)
 var databaseName = 'axiocred'
+// mysqlConnectionOptions translates this into verified TLS for runtime and migrations.
 var mysqlUrl = 'mysql://${mysqlAdministratorLogin}:${uriComponent(mysqlAdministratorPassword)}@${mysqlName}.mysql.database.azure.com:3306/${databaseName}?ssl-mode=REQUIRED'
 
 resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {

@@ -80,7 +80,12 @@ export class BusinessDiscovery {
   }
   async start(query:string,expectedPlaceId?:string,extendedReviews=false) {
     if(!validDiscoveryQuery(query))throw new Error("Enter a business name and city, or a Google Maps/share link.");
-    if(!this.available()&&!(expectedPlaceId&&(await this.fallbackStatus()).ready))throw new Error("The built-in collector is unavailable and paid fallback is not ready. Set up the local runtime before searching.");
+    // `ready` describes NEW budget, not an already-reserved request. collect()
+    // owns admission and can resume pending work even when the allowance is full.
+    if(!this.available()){
+      const status=expectedPlaceId?await this.fallbackStatus():null;
+      if(!status?.enabled||!status.configured)throw new Error("The built-in collector is unavailable and paid fallback is not enabled. Set up the local runtime before searching.");
+    }
     if(this.active?.status==="running"){if(this.active.query===query.trim()&&Boolean(this.active.extendedReviews)===extendedReviews)return this.active;throw new Error("Another search is running. Wait for it to finish, then try again.");}
     const job:DiscoveryJob={id:randomUUID(),query:query.trim(),status:"running",startedAt:new Date().toISOString(),expectedPlaceId,extendedReviews};
     this.active=job;this.jobs.set(job.id,job);
@@ -97,7 +102,7 @@ export class BusinessDiscovery {
   private async run(job:DiscoveryJob) {
     try {
       let entries:unknown[]|undefined;let collectorError:unknown;
-      try {entries=await this.runner(job.query,resolve(jobsDir,job.id),job.extendedReviews);}
+      try {if(!this.available())throw new Error("The built-in collector is unavailable.");entries=await this.runner(job.query,resolve(jobsDir,job.id),job.extendedReviews);}
       catch(error){collectorError=error;}
       if(entries?.length===0){entries=undefined;collectorError=new Error("The built-in collector returned no listings.");}
       if(collectorError&&["EACCES","EPERM","ENOSPC","ABORT_ERR"].includes((collectorError as NodeJS.ErrnoException).code??""))throw collectorError;

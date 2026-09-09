@@ -234,3 +234,10 @@ npm run build
 Migration takes a MySQL advisory lock, creates additive tables/indexes, and backfills each source dataset transactionally. MySQL DDL is not wrapped in an all-or-nothing migration transaction. Re-running the migration rebuilds the projection; original payloads are untouched. Deploy schema before restarting an API build that expects it. For application rollback, leave the additive tables in place and restore the previous application build; no destructive down migration is required.
 
 The isolated SQL verification creates temporary synthetic workspaces, checks direct lookup and FK isolation, verifies retained history after 21 unrelated imports, retries indexing and checks failed-write rollback, then removes only those test workspaces. It makes no provider calls. Live UI checks and exact test totals are recorded in `ARCHITECTURE-VALIDATION.md`.
+
+## PR review fixes (9 September 2026)
+
+- Production customer API access now fails closed with HTTP 503 until tenant authorization exists. Only health and readiness API routes remain available. This includes OAuth and billing; setting provider credentials does not unlock a public SaaS. Local development remains available.
+- PayPal event insertion, subscription/entitlement updates and the processed timestamp commit in one transaction. A database failure rolls everything back so the provider can retry; concurrent duplicate deliveries commit once. Subscription ownership and lifecycle handling remain separate release gates.
+- Migrations and runtime use the same MySQL connection builder. Azure hosts always use certificate and hostname verification with TLS 1.2 or later. `ssl-mode=REQUIRED` is translated into driver options; insecure or embedded SSL overrides are rejected. Local MySQL URLs without TLS options retain local behavior.
+- Fallback admission distinguishes a disabled provider from exhausted new-request budget. An already-reserved pending request can resume when the native collector is unavailable; only the provider ledger may authorize a new charge. Paid fallback remains disabled by default.

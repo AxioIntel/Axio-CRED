@@ -1,4 +1,5 @@
 import {evidenceKey,indexEvidence} from "./evidence-index.js";
+import {mysqlConnectionOptions} from "./mysql-config.js";
 import {monitoredKeys,monitoredLimit,enforceMonitoredLimit} from "./entitlements.js";
 import { createHash, randomUUID } from "node:crypto";
 import mysql, { type Pool, type RowDataPacket } from "mysql2/promise";
@@ -100,7 +101,7 @@ export class MySQLStore implements AppStore {
     }catch(error){await connection.rollback();throw error;}finally{connection.release();}
   }
   constructor(private readonly pool: Pool, private readonly workspaceId=defaultWorkspaceId) {}
-  static create(url:string){return new MySQLStore(mysql.createPool({uri:url,connectionLimit:10,timezone:"Z"}))}
+  static create(url:string){return new MySQLStore(mysql.createPool({...mysqlConnectionOptions(url),connectionLimit:10}))}
   async healthCheck(){try{await this.pool.query("SELECT 1");return true}catch{return false}}
   async getOverview(){
     const [[businesses],[_competitors],[incidents]] = await Promise.all([
@@ -129,7 +130,21 @@ export class MySQLStore implements AppStore {
     try{await connection.beginTransaction();await connection.execute("INSERT INTO collection_jobs(id,workspace_id,kind,payload,status) VALUES(?,?,?,?,?)",[id,this.workspaceId,"business_audit",payload,"completed"]);await connection.execute("INSERT INTO incidents(id,workspace_id,business_id,title,detail,severity,status,evidence_count,detected_at) VALUES(?,?,?,?,?,?,?,?,NOW(6))",[incidentId,this.workspaceId,businessId,"Audit baseline captured","Profile fields and public competitor signals were sampled for future comparison.","info","resolved",1]);await connection.execute("INSERT INTO evidence_objects(id,workspace_id,incident_id,blob_key,sha256,content_type) VALUES(?,?,?,?,?,?)",[evidenceId,this.workspaceId,incidentId,`local/${evidenceId}.json`,sha256,"application/json"]);await connection.commit()}catch(error){await connection.rollback();throw error}finally{connection.release()}
     return {jobId:id,status:"completed"};
   }
-  async recordPayPalEvent(eventId:string,eventType:string,payload:unknown,subscription?:{id:string;plan:"business"|"growth";status:string}){const [result]=await this.pool.execute<mysql.ResultSetHeader>("INSERT IGNORE INTO webhook_events(provider,event_id,event_type,payload,processed_at) VALUES('paypal',?,?,?,NOW(6))",[eventId,eventType,JSON.stringify(payload)]);if(result.affectedRows===0)return {duplicate:true};if(subscription){await this.pool.execute("INSERT INTO subscriptions(id,workspace_id,paypal_subscription_id,plan,status) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE plan=VALUES(plan),status=VALUES(status)",[randomUUID(),this.workspaceId,subscription.id,subscription.plan,subscription.status]);if(subscription.status.toUpperCase()==="ACTIVE")await this.pool.execute("UPDATE workspaces SET plan=? WHERE id=?",[subscription.plan,this.workspaceId])}return {duplicate:false}}
+  async recordPayPalEvent(eventId:string,eventType:string,payload:unknown,subscription?:{id:string;plan:"business"|"growth";status:string}) {
+    const connection=await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [result]=await connection.execute<mysql.ResultSetHeader>("INSERT IGNORE INTO webhook_events(provider,event_id,event_type,payload) VALUES('paypal',?,?,?)",[eventId,eventType,JSON.stringify(payload)]);
+      if(result.affectedRows===0){await connection.commit();return {duplicate:true};}
+      if(subscription){
+        await connection.execute("INSERT INTO subscriptions(id,workspace_id,paypal_subscription_id,plan,status) VALUES(?,?,?,?,?) ON DUPLICATE KEY UPDATE plan=VALUES(plan),status=VALUES(status)",[randomUUID(),this.workspaceId,subscription.id,subscription.plan,subscription.status]);
+        if(subscription.status.toUpperCase()==="ACTIVE")await connection.execute("UPDATE workspaces SET plan=? WHERE id=?",[subscription.plan,this.workspaceId]);
+      }
+      await connection.execute("UPDATE webhook_events SET processed_at=NOW(6) WHERE provider='paypal' AND event_id=?",[eventId]);
+      await connection.commit();
+      return {duplicate:false};
+    }catch(error){await connection.rollback();throw error;}finally{connection.release();}
+  }
   async saveGoogleConnection(connection:GoogleConnection){await this.ensureWorkspace();await this.pool.execute("INSERT INTO google_connections(id,workspace_id,google_subject,email,display_name,access_token_cipher,refresh_token_cipher,token_expires_at) VALUES(?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE email=VALUES(email),display_name=VALUES(display_name),access_token_cipher=VALUES(access_token_cipher),refresh_token_cipher=IF(VALUES(refresh_token_cipher)='',refresh_token_cipher,VALUES(refresh_token_cipher)),token_expires_at=VALUES(token_expires_at)",[randomUUID(),this.workspaceId,connection.subject,connection.email,connection.displayName,connection.accessToken,connection.refreshToken,new Date(connection.expiresAt)])}
   async getGoogleConnection(){const [rows]=await this.pool.query<RowDataPacket[]>("SELECT google_subject,email,display_name,access_token_cipher,refresh_token_cipher,token_expires_at FROM google_connections WHERE workspace_id=? LIMIT 1",[this.workspaceId]);const row=rows[0];return row?{subject:String(row.google_subject),email:String(row.email),displayName:String(row.display_name),accessToken:String(row.access_token_cipher),refreshToken:String(row.refresh_token_cipher??""),expiresAt:new Date(row.token_expires_at).toISOString()}:null}
   async captureProfileSnapshot(businessId:string,snapshot:ProfileSnapshot){const [rows]=await this.pool.query<RowDataPacket[]>("SELECT snapshot FROM profile_snapshots WHERE business_id=? ORDER BY captured_at DESC LIMIT 1",[businessId]);const before=rows[0]?.snapshot as ProfileSnapshot|undefined;const changes=before?diffSnapshots(before,snapshot):[];const id=randomUUID();const sha256=snapshotHash(snapshot);const connection=await this.pool.getConnection();let incidentId:string|undefined;try{await connection.beginTransaction();await connection.execute("INSERT INTO profile_snapshots(id,workspace_id,business_id,snapshot,sha256) VALUES(?,?,?,?,?)",[id,this.workspaceId,businessId,JSON.stringify(snapshot),sha256]);if(changes.length){incidentId=randomUUID();const critical=changes.some(change=>["address","phone","category","serviceAreaOnly"].includes(change.field));await connection.execute("INSERT INTO incidents(id,workspace_id,business_id,title,detail,severity,status,evidence_count,detected_at) VALUES(?,?,?,?,?,?,?,?,NOW(6))",[incidentId,this.workspaceId,businessId,"Business profile integrity change",changes.map(change=>`${change.field}: ${String(change.before)} → ${String(change.after)}`).join("; "),critical?"critical":"warning","open",2]);await connection.execute("UPDATE businesses SET health=?,status=?,last_checked_at=NOW(6) WHERE id=?",[critical?70:85,critical?"critical":"needs_review",businessId])}else{await connection.execute("UPDATE businesses SET last_checked_at=NOW(6) WHERE id=?",[businessId])}await connection.commit()}catch(error){await connection.rollback();throw error}finally{connection.release()}return {baseline:!before,changes,incidentId,sha256}}

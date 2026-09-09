@@ -10,7 +10,7 @@ CI runs on every PR to `main`, pushes to `main`, and manual dispatch. It has no 
 | Frontend unit tests | Any UI/interaction test fails; JUnit results retained |
 | Go lint, vet & build | Formatting, existing golangci rules, vet, module consistency/verification or build failure |
 | Go unit tests (race) | Go test/race failure or bundled scraper-skill tests fail |
-| MySQL migrations & isolation | Fresh or repeated schema migration fails; history retention, workspace FK, idempotence or rollback assertion fails |
+| MySQL migrations & isolation | Fresh or repeated schema migration fails; history retention, workspace FK, idempotence, evidence rollback or PayPal rollback/concurrent retry assertion fails |
 | Application & container build | Exact Docker context fails to build or runtime lacks artifacts, contains local data or runs as root |
 | Semgrep security scan | Community `p/ci` or application-specific security finding; SARIF retained |
 | Secret scan | Gitleaks detects a credential in proposed commits; values redacted in reports |
@@ -47,3 +47,7 @@ npm run build
 Run MySQL verification only with a local/disposable database configured: `npm run migrate -w backend`, then `node --import tsx scripts/verify-evidence-index.mjs`. The script accepts `MYSQL_URL` from the environment so CI does not need an `.env` file. Go lint/test/vet and Linux race/container/security checks also run in GitHub Actions.
 
 Implementation references: [Semgrep CI configuration](https://semgrep.dev/docs/semgrep-ci/sample-ci-configs), [ESLint configuration](https://eslint.org/docs/latest/use/configure/configuration-files), [Gitleaks CLI](https://github.com/gitleaks/gitleaks).
+
+## PR review regression coverage
+
+Production API tests require 503 before workspace access or provider work, while health/readiness remain available. MySQL driver tests verify certificate and hostname checks for Azure and explicit TLS URLs. The disposable MySQL job injects a payment failure after the subscription insert, verifies rollback, then sends concurrent retries and checks that exactly one commits. Outscraper integration tests exhaust the allowance with a pending reservation, restart the provider and resume it without a second paid submission.

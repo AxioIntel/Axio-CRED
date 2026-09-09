@@ -2,11 +2,12 @@ import "./config.js";
 import { readFile } from "node:fs/promises";
 import mysql from "mysql2/promise";
 import {indexEvidence} from "./evidence-index.js";
+import {mysqlConnectionOptions} from "./mysql-config.js";
 
 const url = process.env.MYSQL_URL;
 if (!url) throw new Error("MYSQL_URL is required. Copy app/.env.example to app/.env and set a scoped local user.");
 const sql = await readFile(new URL("../sql/001_initial.sql", import.meta.url), "utf8");
-const connection = await mysql.createConnection({ uri: url, multipleStatements: true, timezone:"Z" });
+const connection = await mysql.createConnection({ ...mysqlConnectionOptions(url), multipleStatements: true });
 try {
 const [locks]=await connection.query<mysql.RowDataPacket[]>("SELECT GET_LOCK('axiocred_schema',30) acquired");
 if(locks[0]?.acquired!==1)throw new Error("Another schema migration is running. Retry after it completes.");

@@ -30,6 +30,14 @@ export function createApp(store: AppStore, discoveryRunner?: DiscoveryRunner, an
   const discovery = new BusinessDiscovery(store, discoveryRunner);
   const analysis = new ReviewAnalysisService(store,analysisOptions);
   app.use(cors({ origin: config.appUrl, credentials: true }));
+  // The customer workspace has no tenant authorization yet. A production image
+  // must not expose preview data or provider actions merely because it can boot.
+  app.use("/api", (req, res, next) => {
+    if (process.env.NODE_ENV === "production" && !["/health", "/ready"].includes(req.path)) {
+      return res.status(503).json({error:"Customer workspace access is disabled in production until tenant authorization is implemented."});
+    }
+    next();
+  });
   app.use("/api/intelligence/imports", express.json({ limit: "10mb" }));
   app.use(express.json({ limit: "1mb" }));
 
