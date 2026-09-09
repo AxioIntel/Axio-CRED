@@ -6,3 +6,17 @@ examples/examples-api/map-outputs
 examples/examples-api/**/__pycache__/
 examples/examples-api/**/*.py[cod]
 gmaps-output
+app/.env
+app/.env.*
+!app/.env.example
+app/.dev/
+app/.tools/
+app/node_modules/
+app/**/node_modules/
+app/**/.vite/
+app/**/dist/
+app/backend/dist/
+app/frontend/dist/
+app/frontend/*.tsbuildinfo
+app/frontend/vite.config.js
+app/frontend/vite.config.d.ts

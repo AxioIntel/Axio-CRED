@@ -1,0 +1,14 @@
+{
+  "name": "axiocred-app",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm:dev -w backend\" \"npm:dev -w frontend\"",
+    "build": "npm run build -w frontend && npm run build -w backend",
+    "test": "npm run test -w backend && npm run test -w frontend",
+    "check": "npm run check -w backend && npm run check -w frontend"
+  },
+  "workspaces": ["backend", "frontend"],
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

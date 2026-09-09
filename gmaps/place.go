@@ -121,6 +121,7 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		convertedReviews := ConvertDOMReviewsToReviews(domReviews)
 
 		deduped := dedupeDOMReviewsAgainstPrimary(entry.UserReviews, convertedReviews)
+		deduped = dedupeDOMReviewsAgainstPrimary(entry.UserReviewsExtended, deduped)
 		if len(deduped) != len(convertedReviews) {
 			log.Printf("DOM reviews: dropped %d of %d already present in user_reviews",
 				len(convertedReviews)-len(deduped), len(convertedReviews))
@@ -197,12 +198,13 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 			// Use the new fallback mechanism that tries RPC first, then DOM
 			rpcData, domReviews, err := FetchReviewsWithFallback(ctx, params)
 
-			switch {
-			case err != nil:
+			if err != nil {
 				fmt.Printf("Warning: review extraction failed: %v\n", err)
-			case len(rpcData.pages) > 0:
+			}
+			if len(rpcData.pages) > 0 {
 				resp.Meta["reviews_raw"] = rpcData
-			case len(domReviews) > 0:
+			}
+			if len(domReviews) > 0 {
 				resp.Meta["dom_reviews"] = domReviews
 			}
 		}

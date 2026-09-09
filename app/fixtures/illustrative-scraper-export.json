@@ -1,0 +1,20 @@
+[
+  {
+    "title": "Illustrative Import Test Business",
+    "category": "Dentist",
+    "address": "Fictional location for local testing",
+    "latitude": 30.27,
+    "longtitude": -97.74,
+    "review_rating": 4.5,
+    "review_count": 20,
+    "phone": "+1 512 555 0100",
+    "web_site": "https://import-test.example",
+    "emails": ["hello@import-test.example"],
+    "user_reviews": [
+      { "review_id": "illustrative-review-1", "Name": "Illustrative reviewer", "Description": "Synthetic review for testing the import workflow.", "Rating": 4, "When": "Unknown", "reply_text": "Synthetic owner reply." }
+    ],
+    "user_reviews_extended": [
+      { "review_id": "illustrative-review-1", "Name": "Illustrative reviewer", "Description": "Synthetic review for testing the import workflow.", "Rating": 4, "When": "Unknown", "reply_text": "Synthetic owner reply." }
+    ]
+  }
+]

@@ -83,6 +83,20 @@ func NewGmapJob(
 	return &job
 }
 
+// GetFullURL preserves existing Maps query parameters when adding the language.
+func (j *GmapJob) GetFullURL() string {
+	parsed, err := url.Parse(j.URL)
+	if err != nil {
+		return j.URL
+	}
+	params := parsed.Query()
+	for key, value := range j.URLParams {
+		params.Set(key, value)
+	}
+	parsed.RawQuery = params.Encode()
+	return parsed.String()
+}
+
 func WithDeduper(d deduper.Deduper) GmapJobOptions {
 	return func(j *GmapJob) {
 		j.Deduper = d

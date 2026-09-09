@@ -1,0 +1,21 @@
+erDiagram
+  workspaces ||--o{ workspace_members : authorizes
+  users ||--o{ workspace_members : joins
+  workspaces ||--o{ monitored_subjects : allocates_slots
+  evidence_subjects ||--o| monitored_subjects : purpose_flags
+  evidence_subjects ||--o{ subject_aliases : resolves_identity
+  evidence_subjects ||--o{ platform_profiles : links
+  platform_profiles ||--o{ collection_runs : schedules
+  collection_runs ||--o{ evidence_snapshots : produces
+  evidence_snapshots ||--o{ review_observations : captures
+  evidence_snapshots ||--o{ analysis_runs : assessed_input
+  analysis_runs ||--o{ review_findings : suggests
+  review_observations ||--o{ review_findings : cites
+  review_findings ||--o{ report_case_items : reviewed_evidence
+  report_cases ||--o{ report_case_items : contains
+  report_cases ||--o{ report_case_events : records_human_action
+  evidence_snapshots ||--o{ alert_events : comparison_evidence
+  alert_events ||--o{ notification_outbox : dispatches
+  notification_outbox ||--o{ delivery_attempts : retries
+  workspaces ||--o{ subscriptions : owns
+  subscriptions ||--o{ billing_events : updates_entitlements
