@@ -1,3 +1,4 @@
+import CollectionWorkspace from "./CollectionWorkspace";
 import SettingsWorkspace from "./SettingsWorkspace";
 import WorkflowShell from "./WorkflowShell";
 import MissionWorkspace from "./MissionWorkspace";
@@ -11,7 +12,7 @@ import { api, type Business } from "./api";
 
 
 function OverviewEntry(){const [params]=useSearchParams();return params.has("dataset")?<Navigate to={"/evidence?"+params.toString()} replace/>:<MissionWorkspace/>;}
-function Shell(){return <WorkflowShell><Routes><Route path="/overview" element={<OverviewEntry/>}/><Route path="/evidence" element={<IntelligenceDashboard/>}/><Route path="/alerts" element={<MissionWorkspace alerts/>}/><Route path="/enrichment" element={<IntelligenceDashboard enrichment/>}/><Route path="/integrity" element={<Navigate to="/alerts?scope=owned" replace/>}/><Route path="/businesses" element={<BusinessesPage/>}/><Route path="/competitors" element={<CompetitorsPage/>}/><Route path="/platforms" element={<PlatformWorkspace/>}/><Route path="/investigations" element={<Navigate to="/alerts" replace/>}/><Route path="/reports" element={<ReportsPage/>}/><Route path="/settings" element={<SettingsPage/>}/><Route path="*" element={<Navigate to="/overview" replace/>}/></Routes></WorkflowShell>;}
+function Shell(){return <WorkflowShell><Routes><Route path="/overview" element={<OverviewEntry/>}/><Route path="/collections" element={<CollectionWorkspace/>}/><Route path="/evidence" element={<IntelligenceDashboard/>}/><Route path="/alerts" element={<MissionWorkspace alerts/>}/><Route path="/enrichment" element={<IntelligenceDashboard enrichment/>}/><Route path="/integrity" element={<Navigate to="/alerts?scope=owned" replace/>}/><Route path="/businesses" element={<BusinessesPage/>}/><Route path="/competitors" element={<CompetitorsPage/>}/><Route path="/platforms" element={<PlatformWorkspace/>}/><Route path="/investigations" element={<Navigate to="/alerts" replace/>}/><Route path="/reports" element={<ReportsPage/>}/><Route path="/settings" element={<SettingsPage/>}/><Route path="*" element={<Navigate to="/overview" replace/>}/></Routes></WorkflowShell>;}
 
 function ErrorBox({message}:{message:string}){return <div className="error-box"><AlertTriangle size={18}/>{message}</div>}
 function PageHead({title,desc,action}:{title:string;desc:string;action?:ReactNode}){return <div className="page-head"><div><h1>{title}</h1><p>{desc}</p></div>{action}</div>}

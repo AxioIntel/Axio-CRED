@@ -2,6 +2,10 @@
 
 Updated 2026-09-09 against PR #1, including code revision `9bd026b`. The implementation and fixes through `9bd026b` were merged in PR #1 on 9 September 2026. No deployed production release is claimed. Current CI verification uses a disposable MySQL 8 service; earlier local database observations are historical. This is the Axio-CRED product baseline; older plans are requirement history, not proof of delivery.
 
+## Native collection integration follow-up
+
+The [gosom feature audit and native collection architecture](NATIVE-COLLECTION-ARCHITECTURE.md) maps all 297 authored commits to the app. The current branch adds `/collections`, bounded batch/grid/fast discovery, native language/email/history options, partial-result retention, job history/cancel/retry, server-only proxy/concurrency configuration, richer business facts and CSV export. These additions are not yet merged. The upstream PostgreSQL SaaS control plane, LeadsDB connector and cloud provisioners remain distinct from the Azure/MySQL app and are explicitly accounted for in that matrix. Outscraper remains exact-ID fallback only.
+
 ## The product objective
 
 **Help a user protect a business and monitor competitors by collecting public evidence, spotting changes, assessing review-policy concerns, and preparing a human-reviewed report.**

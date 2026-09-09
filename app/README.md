@@ -6,6 +6,12 @@ The customer app is in this folder; the repository Go scraper is the chosen publ
 
 Production customer API access returns **503** until tenant authorization exists; only health/readiness API routes remain accessible. Local development continues to work. Implementation through `9bd026b` was merged in [PR #1](https://github.com/AxioIntel/Axio-CRED/pull/1) on 9 September 2026. These documentation corrections are a follow-up; no production deployment is claimed.
 
+## Collecting with the native scraper
+
+Open `/collections` for batch discovery, center/grid searches, language, website-email and extended-review options. Inspect saved datasets in the review library, then select businesses to protect or monitor. The native scraper is primary; broad collection never invokes Outscraper. See [native feature parity and architecture](NATIVE-COLLECTION-ARCHITECTURE.md) for configuration, limits and the complete gosom commit audit.
+
+Optional server configuration is documented in `.env.example`: `NATIVE_SCRAPER_BINARY`, `NATIVE_SCRAPER_PROXIES_FILE`, and bounded worker tuning. No proxy credentials belong in the browser or git.
+
 ## Local preview
 
 From this folder in PowerShell:

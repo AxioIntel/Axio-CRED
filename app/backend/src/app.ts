@@ -1,3 +1,5 @@
+import {collectionCsv} from "./collection-export.js";
+import {collectionOptionsSchema,nativeTuning} from "./collection-options.js";
 import {registerPlatformProfiles} from "./platform-profiles.js";
 import {redressalCsv} from "./redressal.js";
 import express from "express";
@@ -43,6 +45,7 @@ export function createApp(store: AppStore, discoveryRunner?: DiscoveryRunner, an
 
   registerReporting(app,store);
   registerPlatformProfiles(app,store);
+  app.get("/api/intelligence/imports/:id/export.csv",async(req,res)=>{const dataset=await store.getIntelligenceImport(req.params.id);if(!dataset)return res.status(404).json({error:"Collection not found."});res.setHeader("Content-Disposition","attachment; filename=axiocred-business-evidence.csv");return res.type("text/csv").send(collectionCsv(dataset));});
   app.get("/api/intelligence/imports/:id", async (req,res)=>{const dataset=await store.getIntelligenceImport(req.params.id);return dataset?res.json(dataset):res.status(404).json({error:"This collection was not found in this workspace."});});
   app.get("/api/intelligence/imports", async (_req, res) => res.json(await store.listIntelligenceImports()));
   const analysisInput=z.object({datasetId:z.string().uuid(),listingId:z.string().min(1).max(255)});
@@ -81,6 +84,19 @@ export function createApp(store: AppStore, discoveryRunner?: DiscoveryRunner, an
   app.get("/api/overview", async (_req, res) => res.json(await store.getOverview()));
   app.get("/api/businesses", async (_req, res) => res.json(await store.listBusinesses()));
   app.get("/api/business-search/status", async (_req,res)=>res.json({available:discovery.available(),fallback:await discovery.fallbackStatus()}));
+  app.get("/api/collections",async(_req,res)=>res.json(await discovery.list()));
+  app.get("/api/collections/runtime",(_req,res)=>res.json({available:discovery.available(),proxyConfigured:Boolean(process.env.NATIVE_SCRAPER_PROXIES_FILE),maxQueries:10,maxCells:100,maxListings:1000,tuning:nativeTuning(),primary:"builtin",scheduled:false}));
+  app.post("/api/collections",async(req,res)=>{
+    const parsed=z.object({queries:z.array(z.string().trim().min(3).max(2000)).min(1).max(10),options:collectionOptionsSchema}).strict().safeParse(req.body);
+    if(!parsed.success)return res.status(400).json({error:parsed.error.issues[0]?.message??"Check collection options."});
+    try{return res.status(202).json(await discovery.startCollection(parsed.data.queries,parsed.data.options));}catch(error){return res.status(409).json({error:error instanceof Error?error.message:"Collection could not start."});}
+  });
+  app.post("/api/collections/:id/retry",async(req,res)=>{
+    if(!z.string().uuid().safeParse(req.params.id).success)return res.status(400).json({error:"Invalid job ID."});
+    const old=await discovery.get(req.params.id);if(!old)return res.status(404).json({error:"Collection not found."});
+    try{return res.status(202).json(old.expectedPlaceId?await discovery.startPlaceId(old.expectedPlaceId,true,old.extendedReviews):old.options?await discovery.startCollection(old.queries??[old.query],old.options):await discovery.start(old.query));}catch(error){return res.status(409).json({error:error instanceof Error?error.message:"Retry could not start."});}
+  });
+  app.post("/api/collections/:id/cancel",(req,res)=>discovery.cancel(req.params.id)?res.status(202).json({message:"Cancellation requested; waiting for the native process to stop."}):res.status(409).json({error:"No cancellable native job is running with this ID."}));
   app.post("/api/business-search",async(req,res)=>{
     if(req.body?.placeId!==undefined){if(!validPlaceId(req.body.placeId))return res.status(400).json({error:"Paste only the Place ID from Google’s finder, without a link or spaces."});try{return res.status(202).json(await discovery.startPlaceId(req.body.placeId,req.body.refresh===true,req.body.extendedReviews===true));}catch(error){return res.status(409).json({error:error instanceof Error?error.message:"Could not load this Place ID."});}}
     if(!validDiscoveryQuery(req.body?.query))return res.status(400).json({error:"Enter a business name and city, or a Google Maps/share link."});

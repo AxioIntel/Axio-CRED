@@ -6,6 +6,7 @@ Source: merged [PR #1](https://github.com/AxioIntel/Axio-CRED/pull/1), reviewed 
 |---|---|---|
 | Business selection | Google Place ID, name/city or Maps link; select as owned or competitor | Public selection does not prove ownership; owner access is not required for monitoring |
 | Native collection | Windows Go/Chromium process, on-demand jobs and saved results | One active local job; ordinary three-minute and extended twenty-minute process bounds; no guarantee of all reviews |
+| Native collection workspace (branch addition) | Batch queries, bounded grid/center search, fast/detail modes, language, emails, history/cancel/retry, richer facts and CSV | See [author audit and architecture](NATIVE-COLLECTION-ARCHITECTURE.md); 1,000 saved listings, 100 query/cell combinations, one active job; no distributed queue |
 | Extended history | RPC pagination and DOM supplement | DOM ceiling 5,000, fifteen-minute DOM budget; partial results disclosed |
 | Outscraper fallback | Exact-ID failures or material extended-history gaps; local reservation and resumption | Paid calls disabled, monthly allowance zero; injected tests only |
 | Evidence store | MySQL payloads plus subject/snapshot/review-observation index | Recent 20 datasets plus two indexed snapshots per monitored identity; direct historical lookup; no arbitrary history pagination |
