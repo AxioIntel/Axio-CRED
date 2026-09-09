@@ -1,0 +1,10 @@
+.env
+.dev
+.tools
+node_modules
+backend/dist
+frontend/dist
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+npm-debug.log*

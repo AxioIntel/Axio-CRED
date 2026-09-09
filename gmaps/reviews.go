@@ -3,6 +3,8 @@ package gmaps
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -17,6 +19,9 @@ import (
 	"github.com/gosom/scrapemate"
 	"github.com/gosom/scrapemate/adapters/fetchers/stealth"
 )
+
+//go:embed review_dom.js
+var reviewDOMScript string
 
 type fetchReviewsParams struct {
 	page        scrapemate.BrowserPage
@@ -41,6 +46,20 @@ func newReviewFetcher(params fetchReviewsParams) *fetcher {
 	}
 
 	return &ans
+}
+
+// reviewPageBudget accommodates reported totals over 1,000, with a safety ceiling.
+func reviewPageBudget(count int) int {
+	if count <= 0 {
+		return 100
+	}
+
+	pages := (count+19)/20 + 2
+	if pages > 250 {
+		return 250
+	}
+
+	return pages
 }
 
 func (f *fetcher) fetch(ctx context.Context) (FetchReviewsResponse, error) {
@@ -76,7 +95,14 @@ func (f *fetcher) fetch(ctx context.Context) (FetchReviewsResponse, error) {
 
 	nextPageToken := extractNextPageToken(currentPageBody)
 
-	for nextPageToken != "" {
+	seenTokens := map[string]bool{}
+	for nextPageToken != "" && len(ans.pages) < reviewPageBudget(f.params.reviewCount) {
+		if ctx.Err() != nil || seenTokens[nextPageToken] {
+			break
+		}
+
+		seenTokens[nextPageToken] = true
+
 		reviewURL, err = f.generateURL(f.params.mapURL, nextPageToken, 20, requestIDForSession)
 		if err != nil {
 			log.Printf("Error generating URL for token %s: %v", nextPageToken, err)
@@ -97,7 +123,7 @@ func (f *fetcher) fetch(ctx context.Context) (FetchReviewsResponse, error) {
 }
 
 // fetchWithBrowser uses Playwright to fetch the review API with browser cookies
-func (f *fetcher) fetchWithBrowser(_ context.Context, initialURL, requestID string) (FetchReviewsResponse, error) {
+func (f *fetcher) fetchWithBrowser(ctx context.Context, initialURL, requestID string) (FetchReviewsResponse, error) {
 	ans := FetchReviewsResponse{}
 	page := f.params.page
 
@@ -145,7 +171,15 @@ func (f *fetcher) fetchWithBrowser(_ context.Context, initialURL, requestID stri
 
 	// Get additional pages
 	nextPageToken := extractNextPageToken([]byte(data))
-	for nextPageToken != "" && len(ans.pages) < 50 { // Limit to 50 pages
+	seenTokens := map[string]bool{}
+
+	for nextPageToken != "" && len(ans.pages) < reviewPageBudget(f.params.reviewCount) {
+		if ctx.Err() != nil || seenTokens[nextPageToken] {
+			break
+		}
+
+		seenTokens[nextPageToken] = true
+
 		nextURL, err := f.generateURL(f.params.mapURL, nextPageToken, 20, requestID)
 		if err != nil {
 			break
@@ -333,6 +367,56 @@ type DOMReview struct {
 	RelativeTimeDescription string
 	Text                    string
 	Images                  []string
+	PublishedAt             string
+	ReplyText               string
+}
+
+// mergeDOMReviews indexes identities once instead of comparing every loaded card
+// with every prior card on each scroll. Distinct IDs always remain distinct.
+func mergeDOMReviews(reviews, incoming []DOMReview, index map[string]int) []DOMReview {
+	for position := range incoming {
+		next := &incoming[position]
+
+		key := next.ReviewID
+		if key == "" {
+			data, _ := json.Marshal([]any{next.AuthorURL, next.AuthorName, next.Rating, next.RelativeTimeDescription, next.Text})
+			key = fmt.Sprintf("fallback:%x", sha256.Sum256(data))
+		}
+
+		if i, ok := index[key]; ok {
+			old := &reviews[i]
+			if len(next.Text) > len(old.Text) {
+				old.Text = next.Text
+			}
+
+			if next.AuthorURL != "" {
+				old.AuthorURL = next.AuthorURL
+			}
+
+			if next.PublishedAt != "" {
+				old.PublishedAt = next.PublishedAt
+			}
+
+			if next.ReplyText != "" {
+				old.ReplyText = next.ReplyText
+			}
+
+			if len(next.Images) > len(old.Images) {
+				old.Images = next.Images
+			}
+
+			continue
+		}
+
+		if len(reviews) >= 5000 {
+			break
+		}
+
+		index[key] = len(reviews)
+		reviews = append(reviews, *next)
+	}
+
+	return reviews
 }
 
 // ConvertDOMReviewsToReviews converts DOMReview slice to Review slice
@@ -349,9 +433,16 @@ func ConvertDOMReviewsToReviews(domReviews []DOMReview) []Review {
 			When:           dr.RelativeTimeDescription,
 			Images:         dr.Images,
 			ReviewID:       dr.ReviewID,
+			AuthorURL:      dr.AuthorURL,
+			ReplyText:      dr.ReplyText,
+			Source:         "Google Maps public page",
 		}
 
-		if review.Name != "" {
+		if published, err := time.Parse(time.RFC3339, dr.PublishedAt); err == nil && !published.Before(earliestReviewPublishedAt) && !published.After(time.Now().Add(reviewPublishedAtFutureSkew)) {
+			review.PublishedAt = &published
+		}
+
+		if review.Name != "" || review.ReviewID != "" {
 			reviews = append(reviews, review)
 		}
 	}
@@ -359,14 +450,14 @@ func ConvertDOMReviewsToReviews(domReviews []DOMReview) []Review {
 	return reviews
 }
 
-// dedupeDOMReviewsAgainstPrimary drops DOM reviews that are already present in the
-// primary reviews. Matching is by review id only, an empty id is never a duplicate.
+// dedupeDOMReviewsAgainstPrimary enriches primary records before dropping a DOM
+// duplicate. Matching is by review id only; an empty id is never a duplicate.
 func dedupeDOMReviewsAgainstPrimary(primary, domReviews []Review) []Review {
-	seen := make(map[string]struct{}, len(primary))
+	seen := make(map[string]int, len(primary))
 
 	for i := range primary {
 		if primary[i].ReviewID != "" {
-			seen[primary[i].ReviewID] = struct{}{}
+			seen[primary[i].ReviewID] = i
 		}
 	}
 
@@ -381,7 +472,28 @@ func dedupeDOMReviewsAgainstPrimary(primary, domReviews []Review) []Review {
 		if domReviews[i].ReviewID != "" {
 			withID++
 
-			if _, dup := seen[domReviews[i].ReviewID]; dup {
+			if j, dup := seen[domReviews[i].ReviewID]; dup {
+				old, next := &primary[j], &domReviews[i]
+				if len(next.Description) > len(old.Description) {
+					old.Description = next.Description
+				}
+
+				if old.AuthorURL == "" {
+					old.AuthorURL = next.AuthorURL
+				}
+
+				if old.ReplyText == "" {
+					old.ReplyText = next.ReplyText
+				}
+
+				if old.PublishedAt == nil {
+					old.PublishedAt = next.PublishedAt
+				}
+
+				if len(next.Images) > len(old.Images) {
+					old.Images = next.Images
+				}
+
 				continue
 			}
 		}
@@ -406,6 +518,14 @@ func decodeDOMReviews(raw []any) []DOMReview {
 		}
 
 		review := DOMReview{}
+		if v, ok := reviewMap["published_at"].(string); ok {
+			review.PublishedAt = v
+		}
+
+		if v, ok := reviewMap["reply_text"].(string); ok {
+			review.ReplyText = v
+		}
+
 		if v, ok := reviewMap["review_id"].(string); ok {
 			review.ReviewID = v
 		}
@@ -459,7 +579,7 @@ func decodeDOMReviews(raw []any) []DOMReview {
 
 // extractReviewsFromPage extracts reviews directly from the page DOM
 // This is a fallback when the RPC API fails
-func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([]DOMReview, error) {
+func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, expectedCount int) []DOMReview {
 	log.Printf("Attempting DOM-based review extraction")
 
 	// First, try to click the reviews section to open the reviews panel
@@ -514,206 +634,49 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([
 
 	// Wait for reviews panel to load
 	time.Sleep(3 * time.Second)
+	// Prefer the public UI's chronological ordering. If the control is unavailable,
+	// retain the existing order and disclose it instead of claiming newest-first.
+	sortOpened, _ := page.Eval(`() => {
+        const button = [...document.querySelectorAll('button')].find(b => /sort reviews/i.test(b.getAttribute('aria-label') || ''));
+        if (!button) return false;
+        button.click(); return true;
+    }`)
+	if sortOpened == true {
+		time.Sleep(time.Second)
+
+		sorted, _ := page.Eval(`() => {
+            const option = [...document.querySelectorAll('[role="menuitemradio"], [role="menuitem"], [role="option"]')].find(e => e.textContent.trim() === 'Newest');
+            if (!option) return false;
+            option.click(); return true;
+        }`)
+		log.Printf("Public review newest sort selected: %v", sorted == true)
+
+		if sorted == true {
+			time.Sleep(2 * time.Second)
+		}
+	}
 
 	var reviews []DOMReview
 
-	maxScrollAttempts := 30
+	deadline := time.Now().Add(15 * time.Minute)
+	reviewIndex := make(map[string]int)
+	maxScrollAttempts := 1200
 	lastCount := 0
 	stuckCount := 0
 
 	for attempt := 0; attempt < maxScrollAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
-			return reviews, ctx.Err()
+			return reviews
 		default:
 		}
 
-		// Extract reviews from the DOM - updated for Dec 2025 Google Maps structure
-		reviewsJSON, err := page.Eval(`() => {
-			try {
-				const reviews = [];
-
-				// Try multiple selectors for review container elements
-				// Google Maps uses various class names that change over time
-				const reviewSelectors = [
-					'.jftiEf',                           // Common review container
-					'div[data-review-id]',               // Review with ID attribute
-					'.gws-localreviews__google-review',  // Alternative format
-					'[data-hveid] .review-dialog-list > div', // Search results reviews
-					'.WMbnJf',                           // Another review container
-					'.bwb7ce',                           // New review format
-				];
-
-				let reviewElements = [];
-				for (const selector of reviewSelectors) {
-					const elements = document.querySelectorAll(selector);
-					if (elements && elements.length > 0) {
-						reviewElements = Array.from(elements);
-						console.log('Found reviews with selector:', selector, 'count:', elements.length);
-						break;
-					}
-				}
-
-				// If no reviews found with specific selectors, try to find by structure
-				if (reviewElements.length === 0) {
-					// Look for elements that look like reviews (have rating + text)
-					const allDivs = document.querySelectorAll('div[class]');
-					for (const div of allDivs) {
-						const hasRating = div.querySelector('[aria-label*="star"], [role="img"][aria-label*="star"]');
-						const hasText = div.querySelector('span.wiI7pd, span[class*="review"]');
-						if (hasRating && hasText && !reviewElements.includes(div)) {
-							reviewElements.push(div);
-						}
-					}
-				}
-
-				console.log('Total review elements found:', reviewElements.length);
-
-				for (const element of reviewElements) {
-					try {
-						// The card carries the id, unless the selector matched a wrapper
-						const reviewId = element.getAttribute('data-review-id') ||
-							element.querySelector('[data-review-id]')?.getAttribute('data-review-id') || '';
-
-						// Author name - comprehensive selectors
-						const userSelectors = [
-							'.d4r55',           // Primary name class
-							'.WNxzHc',          // Alternative name
-							'.TSUbDb a',        // Link with name
-							'.review-author',   // Generic
-							'button.al6Kxe',    // Clickable name
-							'.bHrnEe',          // Another name container
-						];
-						let userName = '';
-						let userUrl = '';
-						for (const sel of userSelectors) {
-							const el = element.querySelector(sel);
-							if (el) {
-								userName = el.textContent?.trim() || '';
-								if (el.tagName?.toLowerCase() === 'a') {
-									userUrl = el.getAttribute('href') || '';
-								}
-								if (userName) break;
-							}
-						}
-
-						// Profile picture - multiple patterns
-						const profilePicSelectors = [
-							'.NBa7we',
-							'img[src*="googleusercontent"]',
-							'img[src*="lh3.google"]',
-							'.review-author-photo img',
-						];
-						let profilePic = '';
-						for (const sel of profilePicSelectors) {
-							const el = element.querySelector(sel);
-							if (el) {
-								profilePic = el.getAttribute('src') || '';
-								if (profilePic) break;
-							}
-						}
-
-						// Rating - try multiple approaches
-						let rating = 0;
-						const ratingSelectors = [
-							'.kvMYJc',
-							'.DU9Pgb span[aria-label]',
-							'[role="img"][aria-label*="star"]',
-							'.pjemBf span',
-							'.review-score',
-						];
-						for (const sel of ratingSelectors) {
-							const ratingEl = element.querySelector(sel);
-							if (ratingEl) {
-								const ariaLabel = ratingEl.getAttribute('aria-label') || '';
-								// Match patterns like "5 stars", "Rated 4 out of 5", "4.5 étoiles"
-								const match = ariaLabel.match(/(\d+(?:\.\d+)?)/);
-								if (match) {
-									rating = Math.round(parseFloat(match[1])) || 0;
-									break;
-								}
-								// Also try counting filled stars
-								const filledStars = element.querySelectorAll('.hCCjke.vzX5Ic, [aria-label*="star"][style*="color"]').length;
-								if (filledStars > 0) {
-									rating = filledStars;
-									break;
-								}
-							}
-						}
-
-						// Time/date - multiple selectors
-						const timeSelectors = ['.rsqaWe', '.DU9Pgb', '.tTVLSc', '.review-date', '.dehysf'];
-						let relativeTime = '';
-						for (const sel of timeSelectors) {
-							const el = element.querySelector(sel);
-							if (el) {
-								const text = el.textContent?.trim() || '';
-								// Look for time-related text (ago, month, year, etc)
-								if (text && (text.includes('ago') || text.includes('week') || text.includes('month') ||
-								    text.includes('year') || text.includes('day') || text.match(/\d{4}/))) {
-									relativeTime = text;
-									break;
-								}
-							}
-						}
-
-						// Review text - try to expand and get full text
-						const textSelectors = [
-							'.wiI7pd',
-							'.MyEned span',
-							'.review-full-text',
-							'.Jtu6Td span',
-							'[data-expandable-section] span',
-						];
-						let text = '';
-
-						// First try to click "More" button to expand text
-						const moreButtons = element.querySelectorAll('.w8nwRe, button[aria-label*="More"], button[aria-expanded="false"]');
-						for (const btn of moreButtons) {
-							try { btn.click(); } catch(e) {}
-						}
-
-						for (const sel of textSelectors) {
-							const textEl = element.querySelector(sel);
-							if (textEl) {
-								text = textEl.textContent?.trim() || '';
-								if (text && text.length > 5) break;
-							}
-						}
-
-						// Images
-						const imageElements = element.querySelectorAll('.KtCyie img, .Tya61d img, .review-photos img, img[src*="lh3"]');
-						const images = [];
-						for (const img of imageElements) {
-							const src = img.getAttribute('src') || '';
-							if (src && !src.includes('data:image') && !src.includes('profile')) {
-								images.push(src);
-							}
-						}
-
-						if (userName && (text || rating > 0)) {
-							reviews.push({
-								review_id: reviewId,
-								author_name: userName,
-								author_url: userUrl,
-								profile_picture: profilePic,
-								rating: rating,
-								relative_time_description: relativeTime,
-								text: text,
-								images: images
-							});
-						}
-					} catch (e) {
-						console.error("Error extracting review:", e);
-					}
-				}
-
-				return reviews;
-			} catch (e) {
-				console.error("Error in review extraction:", e);
-				return [];
-			}
-		}`)
+		if time.Now().After(deadline) {
+			log.Printf("Review time budget reached at %d reviews", len(reviews))
+			break
+		}
+		// Extract reviews from the public review panel.
+		reviewsJSON, err := page.Eval(reviewDOMScript)
 
 		if err != nil {
 			log.Printf("Error extracting reviews from DOM: %v", err)
@@ -722,36 +685,23 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([
 			if ok {
 				decoded := decodeDOMReviews(rawReviews)
 
-				for i := range decoded {
-					// Add if unique (check by author name and text prefix)
-					isDuplicate := false
-
-					for j := range reviews {
-						if reviews[j].AuthorName == decoded[i].AuthorName {
-							if reviews[j].Text == decoded[i].Text {
-								isDuplicate = true
-								break
-							}
-
-							if len(reviews[j].Text) > 20 && len(decoded[i].Text) > 20 &&
-								reviews[j].Text[:20] == decoded[i].Text[:20] {
-								isDuplicate = true
-								break
-							}
-						}
-					}
-
-					if !isDuplicate && decoded[i].AuthorName != "" {
-						reviews = append(reviews, decoded[i])
-					}
-				}
+				reviews = mergeDOMReviews(reviews, decoded, reviewIndex)
 			}
 		}
 
 		currentCount := len(reviews)
+		if currentCount >= 5000 {
+			log.Printf("Review safety limit reached at %d reviews", currentCount)
+			break
+		}
+
+		if expectedCount > 0 && currentCount >= expectedCount {
+			break
+		}
+
 		if currentCount == lastCount {
 			stuckCount++
-			if stuckCount > 5 {
+			if stuckCount >= 15 {
 				log.Printf("Review count stuck at %d, stopping scroll", currentCount)
 				break
 			}
@@ -760,44 +710,37 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage) ([
 			lastCount = currentCount
 		}
 
-		// Scroll to load more reviews
+		// Scroll the review's actual scrollable ancestor, not a layout sibling.
 		_, _ = page.Eval(`() => {
-			try {
-				// Try multiple scroll containers
-				const selectors = [
-					'.m6QErb.DxyBCb.kA9KIf.dS8AEf',
-					'.m6QErb.DxyBCb.kA9KIf',
-					'.DxyBCb.kA9KIf',
-					'.m6QErb',
-					'.section-scrollbox',
-					'div[role="feed"]'
-				];
+            for (const review of document.querySelectorAll('[data-review-id], .jftiEf')) {
+                if (!review.getClientRects().length) continue;
+                for (let parent = review.parentElement; parent; parent = parent.parentElement) {
+                    if (parent.clientHeight > 0 && parent.scrollHeight > parent.clientHeight + 4 && /auto|scroll/.test(getComputedStyle(parent).overflowY)) {
+                        parent.scrollBy(0, Math.max(800, parent.clientHeight * 0.9));
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }`)
 
-				for (const selector of selectors) {
-					const el = document.querySelector(selector);
-					if (el) {
-						el.scrollBy(0, 800);
-						return true;
-					}
-				}
-
-				window.scrollBy(0, 800);
-				return true;
-			} catch (e) {
-				window.scrollBy(0, 800);
-				return false;
-			}
-		}`)
-
-		time.Sleep(500 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return reviews
+		case <-time.After(time.Second):
+		}
 	}
 
 	log.Printf("DOM extraction completed: %d reviews found", len(reviews))
 
-	return reviews, nil
+	return reviews
 }
 
 // FetchReviewsWithFallback attempts RPC-based extraction first, then falls back to DOM
+func shouldSupplementRPC(collected, reported int) bool {
+	return collected == 0 || (reported > collected && collected < 5000)
+}
+
 func FetchReviewsWithFallback(ctx context.Context, params fetchReviewsParams) (FetchReviewsResponse, []DOMReview, error) {
 	fetcher := newReviewFetcher(params)
 
@@ -812,24 +755,20 @@ func FetchReviewsWithFallback(ctx context.Context, params fetchReviewsParams) (F
 			totalReviews += len(reviews)
 		}
 
-		if totalReviews > 0 {
+		if !shouldSupplementRPC(totalReviews, params.reviewCount) {
 			log.Printf("RPC extraction successful: %d review pages, ~%d reviews", len(rpcResponse.pages), totalReviews)
 			return rpcResponse, nil, nil
 		}
 
-		log.Printf("RPC returned empty reviews, trying DOM extraction")
+		log.Printf("RPC coverage incomplete: %d of %d reported reviews; supplementing from public page", totalReviews, params.reviewCount)
 	}
 
 	// Fallback to DOM-based extraction
 	if params.page != nil {
-		domReviews, domErr := extractReviewsFromPage(ctx, params.page)
-		if domErr == nil && len(domReviews) > 0 {
+		domReviews := extractReviewsFromPage(ctx, params.page, params.reviewCount)
+		if len(domReviews) > 0 {
 			log.Printf("DOM extraction successful: %d reviews", len(domReviews))
-			return FetchReviewsResponse{}, domReviews, nil
-		}
-
-		if domErr != nil {
-			log.Printf("DOM extraction failed: %v", domErr)
+			return rpcResponse, domReviews, nil
 		}
 	}
 

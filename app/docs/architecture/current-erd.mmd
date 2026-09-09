@@ -1,0 +1,52 @@
+erDiagram
+  workspaces ||--o{ businesses : contains
+  workspaces ||--o| google_connections : authorizes
+  workspaces ||--o| competitor_workspaces : stores_watchlist_JSON
+  workspaces ||--o| platform_workspaces : stores_profiles_JSON
+  workspaces ||--o| reporting_workspaces : stores_cases_JSON
+  workspaces ||--o{ intelligence_imports : stores_payload
+  workspaces ||--o{ evidence_subjects : scopes
+  businesses ||--o| business_sources : links_source
+  businesses ||--o{ competitors : legacy_reference
+  businesses ||--o{ incidents : records
+  businesses ||--o{ profile_snapshots : records
+  businesses ||--o{ performance_snapshots : records
+  businesses ||--o{ transaction_evidence : records
+  evidence_subjects ||--o{ evidence_snapshots : composite_workspace_FK
+  intelligence_imports ||--o{ evidence_snapshots : composite_workspace_FK
+  evidence_snapshots ||--o{ review_observations : composite_workspace_FK
+  evidence_subjects {
+    char workspace_id PK,FK
+    char id PK
+    text identity_key
+  }
+  evidence_snapshots {
+    char workspace_id PK,FK
+    char id PK
+    char subject_id FK
+    char dataset_id FK
+    varchar listing_id
+    datetime collected_at "nullable"
+    datetime imported_at
+    int reported_count "nullable"
+    int collected_count
+    int usable_text_count
+    int withheld_count
+  }
+  review_observations {
+    char workspace_id PK,FK
+    char snapshot_id PK,FK
+    char review_key PK
+    text source_review_id
+    datetime published_at "nullable; exact only"
+    boolean has_text
+    boolean has_capture_issue
+  }
+  review_analyses { json report }
+  review_snapshots { int review_count }
+  collection_jobs { json payload }
+  evidence_objects { varchar blob_key }
+  subscriptions { varchar paypal_subscription_id }
+  webhook_events { json payload }
+  free_audit_usage { char fingerprint }
+  public_audit_cache { json result }

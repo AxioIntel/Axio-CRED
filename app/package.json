@@ -1,0 +1,22 @@
+{
+  "name": "axiocred-app",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"npm:dev -w backend\" \"npm:dev -w frontend\"",
+    "build": "npm run build -w frontend && npm run build -w backend",
+    "test": "npm run test -w backend && npm run test -w frontend",
+    "check": "npm run check -w backend && npm run check -w frontend",
+    "lint": "eslint backend/src frontend/src scripts eslint.config.mjs --max-warnings 0"
+  },
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "concurrently": "^9.2.1",
+    "eslint": "10.10.0",
+    "globals": "16.5.0",
+    "typescript-eslint": "8.70.0"
+  }
+}

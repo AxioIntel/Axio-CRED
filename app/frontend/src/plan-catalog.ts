@@ -1,0 +1,8 @@
+import {productPlan} from "../../backend/src/product-plan";
+export const planFrequency = (plan:string) => productPlan(plan).checksPerDay===2?"Checked twice a day":productPlan(plan).checksPerDay===4?"Checked four times a day":productPlan(plan).checksPerDay===null?"Custom checking schedule":"One audit, no recurring checks";
+export const marketingPlans = [
+  {name:"Free audit",price:"$0",businesses:"One public business audit",frequency:"One-time check",description:"A first look at the evidence.",features:["Public Google profile","Collected review sample","Audit summary"],note:"Free audit flow is planned."},
+  {name:"Business",price:`$${productPlan("business").price}`,businesses:"1 monitored business",frequency:planFrequency("business"),description:"A focused view of one business.",features:["Your business or a competitor","Google + linked Facebook & Trustpilot","Review evidence and report locators"],note:"Automatic checks are planned."},
+  {name:"Growth",price:`$${productPlan("growth").price}`,businesses:"5 monitored businesses",frequency:planFrequency("growth"),description:"More businesses. A closer watch.",features:["Any mix of owned and competitor listings","All Business features","Separate evidence for every business"],note:"Automatic checks are planned."},
+  {name:"Enterprise",price:"Let’s talk",businesses:"Unlimited monitored businesses",frequency:planFrequency("enterprise"),description:"For larger portfolios and workflows.",features:["Negotiated collection capacity","Scoped API access — planned","Signed webhooks — planned"],note:"Enterprise delivery is in development."}
+];

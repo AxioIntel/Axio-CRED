@@ -62,6 +62,20 @@ func Test_extractPlaceID(t *testing.T) {
 	}
 }
 
+func TestReviewPageBudgetBeyondThousand(t *testing.T) {
+	assert.GreaterOrEqual(t, reviewPageBudget(1162)*20, 1162)
+	assert.Greater(t, reviewPageBudget(1162), 50)
+	assert.Equal(t, 250, reviewPageBudget(1000000))
+	assert.Greater(t, reviewPageBudget(0), 0)
+}
+
+func TestDOMConversionPreservesReviewIdentity(t *testing.T) {
+	reviews := ConvertDOMReviewsToReviews([]DOMReview{{ReviewID: "review-a", AuthorName: "Public reviewer", AuthorURL: "https://www.google.com/maps/contrib/123", Rating: 5, Text: "A public review"}})
+	require.Len(t, reviews, 1)
+	assert.Equal(t, "review-a", reviews[0].ReviewID)
+	assert.Equal(t, "https://www.google.com/maps/contrib/123", reviews[0].AuthorURL)
+}
+
 func loadReviewsFixture(t *testing.T, filename string) []Review {
 	t.Helper()
 
