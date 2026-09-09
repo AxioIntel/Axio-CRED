@@ -15,6 +15,7 @@ import { normalizeImport } from "./intelligence.js";
 import { competitorWorkspaceSchema } from "./competitor-workspace.js";
 import { AnalysisError, ReviewAnalysisService, type AnalysisOptions } from "./review-analysis.js";
 import { BusinessDiscovery, validDiscoveryQuery, validPlaceId, type DiscoveryRunner } from "./business-discovery.js";
+import { MonitoringSettingsError, type MonitoringScheduler } from "./monitoring-scheduler.js";
 
 const businessInput = z.object({ name: z.string().min(2), address: z.string().min(3), category: z.string().min(2) });
 const statusInput = z.object({ status: z.enum(["open", "investigating", "resolved"]) });
@@ -25,9 +26,9 @@ const performanceInput=z.object({businessId:z.string().min(1),impressions:z.numb
 const cookieValue=(header:string|undefined,name:string)=>header?.split(";").map(x=>x.trim()).find(x=>x.startsWith(`${name}=`))?.slice(name.length+1);
 const cookieOptions=()=>`HttpOnly; SameSite=Lax; Path=/; ${config.appUrl.startsWith("https://")?"Secure; ":""}`;
 
-export function createApp(store: AppStore, discoveryRunner?: DiscoveryRunner, analysisOptions?:AnalysisOptions) {
+export function createApp(store: AppStore, discoveryRunner?: DiscoveryRunner, analysisOptions?:AnalysisOptions, monitoring?:{discovery:BusinessDiscovery;scheduler:MonitoringScheduler}) {
   const app = express();
-  const discovery = new BusinessDiscovery(store, discoveryRunner);
+  const discovery = monitoring?.discovery??new BusinessDiscovery(store, discoveryRunner);
   const analysis = new ReviewAnalysisService(store,analysisOptions);
   app.use(cors({ origin: config.appUrl, credentials: true }));
   // The customer workspace has no tenant authorization yet. A production image
@@ -40,6 +41,13 @@ export function createApp(store: AppStore, discoveryRunner?: DiscoveryRunner, an
   });
   app.use("/api/intelligence/imports", express.json({ limit: "10mb" }));
   app.use(express.json({ limit: "1mb" }));
+  app.get("/api/monitoring/schedules",async(_req,res)=>res.json(monitoring?await monitoring.scheduler.status():{available:false,intervalHours:null,schedules:[],mode:"unavailable",message:"Scheduled monitoring requires the local MySQL API and collector."}));
+  app.put("/api/monitoring/schedules/:placeId",async(req,res)=>{
+    if(!monitoring)return res.status(503).json({error:"Scheduled monitoring requires the local MySQL API and collector."});
+    if(req.headers.origin&&req.headers.origin!==config.appUrl)return res.status(403).json({error:"Use the application to change monitoring settings."});
+    if(!validPlaceId(req.params.placeId)||typeof req.body?.enabled!=="boolean")return res.status(400).json({error:"Provide a valid Place ID and monitoring setting."});
+    try{return res.json(await monitoring.scheduler.set(req.params.placeId,req.body.enabled));}catch(error){return res.status(error instanceof MonitoringSettingsError?400:500).json({error:error instanceof MonitoringSettingsError?error.message:"Could not save monitoring settings. Please try again."});}
+  });
 
   registerReporting(app,store);
   registerPlatformProfiles(app,store);
@@ -54,7 +62,7 @@ export function createApp(store: AppStore, discoveryRunner?: DiscoveryRunner, an
     await store.saveIntelligenceImport(result.dataset);
     return res.status(201).json(result.dataset);
   });
-  app.get("/api/intelligence/collector", (_req, res) => res.json({ status: discovery.available() ? "local_on_demand" : "unavailable", available: discovery.available(), message: "On-demand business search uses the local repository scraper. Scheduled collection is not enabled." }));
+  app.get("/api/intelligence/collector", (_req, res) => res.json({ status: discovery.available() ? "local_on_demand" : "unavailable", available: discovery.available(), message: monitoring ? "Enable recurring local checks beside a monitored business’s collection controls." : "On-demand business search uses the local repository scraper. Scheduled collection is unavailable in this mode." }));
   app.get("/api/competitor-workspace", async (_req, res) => res.json(await store.getCompetitorWorkspace()));
   app.put("/api/competitor-workspace", async (req, res) => {
     const parsed = competitorWorkspaceSchema.safeParse(req.body);

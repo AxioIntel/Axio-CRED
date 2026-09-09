@@ -6,8 +6,8 @@ import type { AddressInfo } from "node:net";
 
 describe("built-in business search",()=>{
   it("targets an exact Place ID, rejects mismatches, and reuses a saved listing",async()=>{
-    const placeId="ChIJHy8fZ7P6DDkREnuw1bPQYfw";const store=new DemoStore();const queries:string[]=[];
-    const discovery=new BusinessDiscovery(store,async query=>{queries.push(query);return [{title:"White Dental Healthcare",place_id:placeId}];});
+    const placeId="ChIJexampleBusinessFixture";const store=new DemoStore();const queries:string[]=[];
+    const discovery=new BusinessDiscovery(store,async query=>{queries.push(query);return [{title:"Example Business",place_id:placeId}];});
     expect(validPlaceId(placeId)).toBe(true);expect(validPlaceId("https://example.com")).toBe(false);expect(validPlaceId("bad id")).toBe(false);
     const first=await discovery.startPlaceId(placeId);
     await expect.poll(async()=>(await discovery.get(first.id))?.status).toBe("completed");
@@ -22,7 +22,7 @@ describe("built-in business search",()=>{
     expect((await store.listIntelligenceImports())).toHaveLength(2);
   });
   it("accepts public business searches and rejects unsafe URL or multiline inputs",()=>{
-    expect(validDiscoveryQuery("White Dental Healthcare Indirapuram")).toBe(true);
+    expect(validDiscoveryQuery("Example Business Example City")).toBe(true);
     expect(validDiscoveryQuery("https://share.google/example")).toBe(true);
     for(const input of ["ab","hello\nsecond query","https://localhost:8080/","https://google.com.evil.example/maps","file:///etc/passwd","http://www.google.com/maps"]){expect(validDiscoveryQuery(input)).toBe(false);}
   });

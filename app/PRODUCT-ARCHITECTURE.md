@@ -2,6 +2,8 @@
 
 Audited and updated 2026-09-09 against the application source and local MySQL 8 instance. This is the current product baseline; older plans are requirement history, not proof of delivery.
 
+Update later on 2026-09-09: [local scheduled monitoring](../docs/scheduled-monitoring.md) now implements per-business 6/12-hour opt-in, persisted MySQL due times/leases, pause/resume and broader snapshot-change observations. References below to absent scheduling describe the earlier baseline. Production tenant isolation, a supervised hosted worker, budgets and durable notification delivery remain open.
+
 ## The product objective
 
 **Help a user protect a business and monitor competitors by collecting public evidence, spotting changes, assessing review-policy concerns, and preparing a human-reviewed report.**

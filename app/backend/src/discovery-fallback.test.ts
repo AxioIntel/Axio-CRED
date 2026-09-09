@@ -15,6 +15,12 @@ function provider(enabled=true,fail=false,count=20):FallbackProvider {
 }
 async function finish(discovery:BusinessDiscovery,full=true){const job=await discovery.startPlaceId(id,true,full);await expect.poll(async()=>(await discovery.get(job.id))?.status).not.toBe("running");return (await discovery.get(job.id))!;}
 describe("discovery fallback integration",()=>{
+  it("never invokes enabled paid fallback for a scheduled partial collection",async()=>{
+    const fallback=provider(true);const discovery=new BusinessDiscovery(new DemoStore(),async()=>entries(),fallback);
+    const job=await discovery.startPlaceId(id,true,true,false);
+    await expect.poll(async()=>(await discovery.get(job.id))?.status).toBe("completed");
+    expect(fallback.collect).not.toHaveBeenCalled();
+  });
   it("resumes reserved work without a native collector or remaining budget, but cannot buy another job",async()=>{
     const directory=await mkdtemp(join(tmpdir(),"axiocred-resume-"));
     const pending=()=>new Response(JSON.stringify({status:"Pending",id:"reserved-request"}),{status:202});

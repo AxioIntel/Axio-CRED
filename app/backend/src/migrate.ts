@@ -26,6 +26,7 @@ try {
   await connection.query("CREATE UNIQUE INDEX uq_import_workspace_id ON intelligence_imports(workspace_id,id)");
 } catch(error) {if((error as {code?:string}).code!=="ER_DUP_KEYNAME")throw error;}
 await connection.query(await readFile(new URL("../sql/002_evidence_index.sql",import.meta.url),"utf8"));
+await connection.query(await readFile(new URL("../sql/003_monitoring_schedules.sql",import.meta.url),"utf8"));
 // Restartable backfill: lock each source row and commit its projection independently.
 const [imports]=await connection.query<mysql.RowDataPacket[]>("SELECT id,workspace_id FROM intelligence_imports ORDER BY id");
 for(const item of imports){

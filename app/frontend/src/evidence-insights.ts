@@ -22,6 +22,6 @@ export function observedReviewers(listing:CollectedListing,datasets:Dataset[]){
   }).filter(a=>a.businesses.length);
 }
 export function publicProfileChanges(before:CollectedListing,after:CollectedListing){
-  const fields=['address','category','phone','website','status','latitude','longitude','hours'] as const;
+  const fields=['name','address','category','phone','website','status','latitude','longitude','hours'] as const;
   return fields.flatMap(field=>{const a=before[field],b=after[field];if(a==null||b==null)return [];if(field==='hours'&&(!Object.keys(a).length||!Object.keys(b).length))return [];const canonical=(value:unknown):unknown=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)])):value;const describe=(value:unknown)=>typeof value==='object'?JSON.stringify(canonical(value)):String(value);return describe(a)!==describe(b)?[{field,before:describe(a),after:describe(b)}]:[];});
 }

@@ -1,12 +1,17 @@
 param([switch]$DemoOnly, [switch]$PasswordlessRoot)
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "dev-runtime.ps1")
 $appRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $envPath = Join-Path $appRoot ".env"
 $mysqlPath = "C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe"
 
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) { throw "Node.js is required." }
 if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) { throw "npm is required." }
-if (-not (Test-Path (Join-Path $appRoot "node_modules"))) { & npm.cmd install --prefix $appRoot }
+if (-not (Test-Path (Join-Path $appRoot "node_modules"))) {
+  & npm.cmd ci --prefix $appRoot
+  if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed." }
+}
+if (Test-Path -LiteralPath $envPath) { throw "app/.env already exists. Preserve it and run npm run migrate -w backend from app after checking its database configuration." }
 
 if ($DemoOnly) {
   Copy-Item -LiteralPath (Join-Path $appRoot ".env.example") -Destination $envPath -Force
@@ -42,7 +47,7 @@ $example = Get-Content -LiteralPath (Join-Path $appRoot ".env.example") -Raw
 $configured = $example.Replace("DATA_MODE=demo", "DATA_MODE=mysql").Replace("mysql://axiocred_app:CHANGE_ME@127.0.0.1:3306/axiocred_dev", $connection)
 [IO.File]::WriteAllText($envPath, $configured)
 $env:MYSQL_URL = $connection
-& npm.cmd run migrate --prefix $appRoot
+& npm.cmd run migrate --workspace backend --prefix $appRoot
 if ($LASTEXITCODE -ne 0) { throw "Schema migration failed." }
 $appPassword = $null
 Write-Host "Local MySQL preview is ready. Run .\scripts\dev-start.ps1"
