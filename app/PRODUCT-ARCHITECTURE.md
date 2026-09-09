@@ -1,6 +1,6 @@
 # Axio-CRED: product and architecture baseline
 
-Audited and updated 2026-09-09 against the application source and local MySQL 8 instance. This is the current product baseline; older plans are requirement history, not proof of delivery.
+Updated 2026-09-09 against PR #1, including code revision `9bd026b`. The implementation and fixes through `9bd026b` were merged in PR #1 on 9 September 2026. No deployed production release is claimed. Current CI verification uses a disposable MySQL 8 service; earlier local database observations are historical. This is the Axio-CRED product baseline; older plans are requirement history, not proof of delivery.
 
 ## The product objective
 
