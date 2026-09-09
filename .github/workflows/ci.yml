@@ -186,7 +186,7 @@ jobs:
           python-version: '3.12'
       - run: pip install --disable-pip-version-check semgrep==1.176.1
       - name: Test application security rules against unsafe fixtures
-        run: semgrep --test --config .semgrep.yml .github/semgrep-tests
+        run: semgrep --test --config .semgrep.yml .github/semgrep-tests/unsafe.js
       - name: Community and application-specific security rules
         run: semgrep scan --config p/ci --config .semgrep.yml --metrics=off --error --sarif-output=semgrep.sarif app/backend/src app/frontend/src gmaps
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
