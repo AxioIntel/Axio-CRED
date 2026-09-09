@@ -2,21 +2,17 @@ import SettingsWorkspace from "./SettingsWorkspace";
 import WorkflowShell from "./WorkflowShell";
 import MissionWorkspace from "./MissionWorkspace";
 import LandingPage from "./LandingPage";
-import {planFrequency} from "./plan-catalog";
 import PlatformWorkspace from "./PlatformWorkspace";
 import ReportingWorkspace from "./ReportingWorkspace";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { NavLink, Navigate, Route, Routes, useNavigate, useSearchParams } from "react-router-dom";
-import { Activity, AlertTriangle, BarChart3, Building2, ChevronRight, CircleCheck, FileText, Fingerprint, KeyRound, LayoutDashboard, Plus, Radar, Search, Settings, ShieldCheck, X } from "lucide-react";
-import { api, type Business, type Incident, type Overview } from "./api";
+import { AlertTriangle, Building2, ChevronRight, FileText, ShieldCheck } from "lucide-react";
+import { api, type Business } from "./api";
 
-const date=(value:string)=>new Intl.DateTimeFormat("en",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}).format(new Date(value));
-const number=(value:number)=>new Intl.NumberFormat().format(value);
 
 function OverviewEntry(){const [params]=useSearchParams();return params.has("dataset")?<Navigate to={"/evidence?"+params.toString()} replace/>:<MissionWorkspace/>;}
 function Shell(){return <WorkflowShell><Routes><Route path="/overview" element={<OverviewEntry/>}/><Route path="/evidence" element={<IntelligenceDashboard/>}/><Route path="/alerts" element={<MissionWorkspace alerts/>}/><Route path="/enrichment" element={<IntelligenceDashboard enrichment/>}/><Route path="/integrity" element={<Navigate to="/alerts?scope=owned" replace/>}/><Route path="/businesses" element={<BusinessesPage/>}/><Route path="/competitors" element={<CompetitorsPage/>}/><Route path="/platforms" element={<PlatformWorkspace/>}/><Route path="/investigations" element={<Navigate to="/alerts" replace/>}/><Route path="/reports" element={<ReportsPage/>}/><Route path="/settings" element={<SettingsPage/>}/><Route path="*" element={<Navigate to="/overview" replace/>}/></Routes></WorkflowShell>;}
 
-function Loader(){return <div className="loader"><span/><p>Loading workspace</p></div>}
 function ErrorBox({message}:{message:string}){return <div className="error-box"><AlertTriangle size={18}/>{message}</div>}
 function PageHead({title,desc,action}:{title:string;desc:string;action?:ReactNode}){return <div className="page-head"><div><h1>{title}</h1><p>{desc}</p></div>{action}</div>}
 function Pill({tone,children}:{tone:string;children:ReactNode}){return <span className={`pill ${tone}`}>{children}</span>}
@@ -31,7 +27,6 @@ function AdvancedEvidenceTools(){const [businesses,setBusinesses]=useState<Busin
 
 function SettingsPage(){return <SettingsWorkspace/>;}
 
-function Modal({title,close,children}:{title:string;close:()=>void;children:ReactNode}){return <div className="modal-backdrop" role="presentation" onMouseDown={close}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><h2 id="modal-title">{title}</h2><button className="icon-button" onClick={close} aria-label="Close"><X/></button></div>{children}</section></div>}
 function PublicHeader(){return <header className="public-header"><NavLink to="/" className="brand login-brand"><span className="brand-mark">AX</span><span>Axio-CRED</span></NavLink><nav><NavLink to="/audit">Free audit</NavLink><NavLink to="/pricing">Pricing</NavLink><NavLink to="/login" className="button secondary">Log in</NavLink></nav></header>}
 function LoginPage(){const navigate=useNavigate();const [error,setError]=useState("");async function login(){try{const result=await api.authStart();if(result.mode==="demo")navigate(result.redirectUrl);else window.location.assign(result.redirectUrl)}catch(e){setError(e instanceof Error?e.message:"Sign-in failed")}}return <><PublicHeader/><main className="login-page"><section className="login-card"><Pill tone="ready">Evidence-first reputation defense</Pill><h1>Protect every local business profile.</h1><p>Sign in with Google and monitor any business. Business ownership is not required; Business Profile access is optional.</p>{error&&<ErrorBox message={error}/>}<button className="button loginfang" onClick={login}><Building2 size={18}/> Continue with Google</button><NavLink className="text-button" to="/audit">Run your one free public audit <ChevronRight size={15}/></NavLink><small>Local preview uses a simulated session. Google OAuth activates when credentials are configured.</small></section><aside className="login-proof"><ShieldCheck size={38}/><h2>Built for defensible findings</h2><p>Axio-CRED reports what was observed, when it changed, and what evidence supports the finding.</p></aside></main></>}
 function AuditPage(){return <><PublicHeader/><main className="public-page"><PageHead title="Your free profile audit" desc="A one-time public audit is planned. You can test on-demand collection in the local workspace."/><section className="empty-callout"><ShieldCheck size={28}/><div><h2>Try the local evidence workflow</h2><p>Find a business by Google Place ID, collect its public reviews, and inspect the evidence. The preview does not consume a free audit.</p><NavLink to="/overview" className="text-button">Open monitoring workspace</NavLink></div></section></main></>}

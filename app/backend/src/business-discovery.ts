@@ -17,6 +17,8 @@ export type DiscoveryRunner = (query:string, directory:string, extendedReviews?:
 export const validPlaceId=(value:unknown):value is string=>typeof value==="string"&&/^[A-Za-z0-9_-]{10,300}$/.test(value);
 export function placeIdMapsUrl(placeId:string){const url=new URL("https://www.google.com/maps/search/");url.searchParams.set("api","1");url.searchParams.set("query","Google");url.searchParams.set("query_place_id",placeId);return url.href;}
 export function validDiscoveryQuery(value:unknown):value is string {
+  // Reject embedded control characters in public search input.
+  // eslint-disable-next-line no-control-regex
   if(typeof value!=="string"||value.trim().length<3||value.length>2000||/[\r\n\x00-\x1f]/.test(value))return false;
   if(!/^https?:/i.test(value))return !value.includes("://") && value.length<=200;
   try { const url=new URL(value);return url.protocol==="https:"&&(["maps.app.goo.gl","share.google","maps.google.com"].includes(url.hostname)||(["www.google.com","google.com"].includes(url.hostname)&&url.pathname.startsWith("/maps"))); } catch {return false;}

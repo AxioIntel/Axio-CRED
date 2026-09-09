@@ -1,7 +1,6 @@
 import {monitoredKeys,enforceMonitoredLimit} from "./entitlements.js";
 import { randomUUID } from "node:crypto";
 import type { AppStore, Business, Competitor, GoogleConnection, Incident, ProfileSnapshot } from "./types.js";
-import { PlanLimitError } from "./errors.js";
 import { diffSnapshots, evidenceHash, snapshotHash } from "./integrity.js";
 
 const now = new Date();

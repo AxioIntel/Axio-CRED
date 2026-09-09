@@ -3,7 +3,6 @@ import {monitoredKeys,monitoredLimit,enforceMonitoredLimit} from "./entitlements
 import { createHash, randomUUID } from "node:crypto";
 import mysql, { type Pool, type RowDataPacket } from "mysql2/promise";
 import type { AppStore, Business, Competitor, GoogleConnection, Incident, ProfileSnapshot } from "./types.js";
-import { PlanLimitError } from "./errors.js";
 import { diffSnapshots, evidenceHash, snapshotHash } from "./integrity.js";
 
 const defaultWorkspaceId = "00000000-0000-0000-0000-000000000001";
@@ -104,7 +103,7 @@ export class MySQLStore implements AppStore {
   static create(url:string){return new MySQLStore(mysql.createPool({uri:url,connectionLimit:10,timezone:"Z"}))}
   async healthCheck(){try{await this.pool.query("SELECT 1");return true}catch{return false}}
   async getOverview(){
-    const [[businesses],[competitors],[incidents]] = await Promise.all([
+    const [[businesses],[_competitors],[incidents]] = await Promise.all([
       this.pool.query<RowDataPacket[]>("SELECT COUNT(*) total, MAX(last_checked_at) last_checked, COALESCE(ROUND(AVG(health)),100) profile_integrity FROM businesses WHERE workspace_id=?",[this.workspaceId]),
       this.pool.query<RowDataPacket[]>("SELECT COUNT(*) total FROM competitors WHERE workspace_id=?",[this.workspaceId]),
       this.pool.query<RowDataPacket[]>("SELECT SUM(status<>'resolved') open_total, SUM(status<>'resolved' AND severity='critical') critical_total FROM incidents WHERE workspace_id=?",[this.workspaceId])

@@ -54,6 +54,7 @@ func TestNativeCollectionCapAndRepeatPass(t *testing.T) {
 	for i := range incoming {
 		incoming[i] = DOMReview{ReviewID: fmt.Sprint(i), AuthorName: "Reviewer", Text: "Text"}
 	}
+
 	index := make(map[string]int)
 	rows := mergeDOMReviews(nil, incoming, index)
 	require.Len(t, rows, 5000)
@@ -64,11 +65,14 @@ func TestNativeCollectionCapAndRepeatPass(t *testing.T) {
 func BenchmarkNativeIncrementalMerge(b *testing.B) {
 	rows := make([]DOMReview, 5000)
 	index := make(map[string]int, len(rows))
+
 	for i := range rows {
 		rows[i] = DOMReview{ReviewID: fmt.Sprint(i), Text: "Review text"}
 		index[rows[i].ReviewID] = i
 	}
+
 	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		mergeDOMReviews(rows, rows, index)
 	}

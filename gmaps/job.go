@@ -89,11 +89,14 @@ func (j *GmapJob) GetFullURL() string {
 	if err != nil {
 		return j.URL
 	}
+
 	params := parsed.Query()
 	for key, value := range j.URLParams {
 		params.Set(key, value)
 	}
+
 	parsed.RawQuery = params.Encode()
+
 	return parsed.String()
 }
 

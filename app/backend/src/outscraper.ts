@@ -86,7 +86,7 @@ export class OutscraperFallback implements FallbackProvider {
     try {
       let ledger:Ledger;
       try {ledger=ledgerSchema.parse(JSON.parse(await readFile(resolve(this.directory,"ledger.json"),"utf8")));}
-      catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")ledger={records:[]};else throw new Error("Outscraper budget ledger cannot be read. Paid calls are blocked.");}
+      catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")ledger={records:[]};else throw new Error("Outscraper budget ledger cannot be read. Paid calls are blocked.",{cause:error});}
       const result=await action(ledger);
       const temporary=resolve(this.directory,"ledger.next.json");await writeFile(temporary,JSON.stringify(ledger));
       await rename(temporary,resolve(this.directory,"ledger.json"));return result;
@@ -166,11 +166,11 @@ export class OutscraperFallback implements FallbackProvider {
       }
       throw new PendingError();
     }catch(error){
-      if(error instanceof PendingError)throw new Error("Outscraper is still pending. Retry collection later to resume the saved request; no new paid job will be submitted within 24 hours.");
+      if(error instanceof PendingError)throw new Error("Outscraper is still pending. Retry collection later to resume the saved request; no new paid job will be submitted within 24 hours.",{cause:error});
       const status=error instanceof ProviderError?error.status:null;
       const message=status?`Outscraper returned HTTP ${status}. Check provider credentials, credit and request status; automatic submission retry is blocked.`:"Outscraper could not complete or validate this collection. Check the saved request in the provider dashboard before retrying.";
       await this.update(row.id,{state:"failed",error:message},status&&[401,402,403,429].includes(status)?{until:this.now()+([401,402,403].includes(status)?HOUR:60000),reason:message}:undefined);
-      throw new Error(message);
+      throw new Error(message,{cause:error});
     }
   }
 }

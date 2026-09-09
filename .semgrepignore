@@ -1,0 +1,9 @@
+# Test fixtures deliberately include malicious inputs and sample credentials.
+**/*.test.ts
+**/*.test.tsx
+**/*_test.go
+app/fixtures/
+app/.dev/
+app/.tools/
+**/node_modules/
+**/dist/

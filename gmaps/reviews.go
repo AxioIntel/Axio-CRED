@@ -53,10 +53,12 @@ func reviewPageBudget(count int) int {
 	if count <= 0 {
 		return 100
 	}
+
 	pages := (count+19)/20 + 2
 	if pages > 250 {
 		return 250
 	}
+
 	return pages
 }
 
@@ -98,7 +100,9 @@ func (f *fetcher) fetch(ctx context.Context) (FetchReviewsResponse, error) {
 		if ctx.Err() != nil || seenTokens[nextPageToken] {
 			break
 		}
+
 		seenTokens[nextPageToken] = true
+
 		reviewURL, err = f.generateURL(f.params.mapURL, nextPageToken, 20, requestIDForSession)
 		if err != nil {
 			log.Printf("Error generating URL for token %s: %v", nextPageToken, err)
@@ -168,11 +172,14 @@ func (f *fetcher) fetchWithBrowser(ctx context.Context, initialURL, requestID st
 	// Get additional pages
 	nextPageToken := extractNextPageToken([]byte(data))
 	seenTokens := map[string]bool{}
+
 	for nextPageToken != "" && len(ans.pages) < reviewPageBudget(f.params.reviewCount) {
 		if ctx.Err() != nil || seenTokens[nextPageToken] {
 			break
 		}
+
 		seenTokens[nextPageToken] = true
+
 		nextURL, err := f.generateURL(f.params.mapURL, nextPageToken, 20, requestID)
 		if err != nil {
 			break
@@ -367,37 +374,48 @@ type DOMReview struct {
 // mergeDOMReviews indexes identities once instead of comparing every loaded card
 // with every prior card on each scroll. Distinct IDs always remain distinct.
 func mergeDOMReviews(reviews, incoming []DOMReview, index map[string]int) []DOMReview {
-	for _, next := range incoming {
+	for position := range incoming {
+		next := &incoming[position]
+
 		key := next.ReviewID
 		if key == "" {
 			data, _ := json.Marshal([]any{next.AuthorURL, next.AuthorName, next.Rating, next.RelativeTimeDescription, next.Text})
 			key = fmt.Sprintf("fallback:%x", sha256.Sum256(data))
 		}
+
 		if i, ok := index[key]; ok {
 			old := &reviews[i]
 			if len(next.Text) > len(old.Text) {
 				old.Text = next.Text
 			}
+
 			if next.AuthorURL != "" {
 				old.AuthorURL = next.AuthorURL
 			}
+
 			if next.PublishedAt != "" {
 				old.PublishedAt = next.PublishedAt
 			}
+
 			if next.ReplyText != "" {
 				old.ReplyText = next.ReplyText
 			}
+
 			if len(next.Images) > len(old.Images) {
 				old.Images = next.Images
 			}
+
 			continue
 		}
+
 		if len(reviews) >= 5000 {
 			break
 		}
+
 		index[key] = len(reviews)
-		reviews = append(reviews, next)
+		reviews = append(reviews, *next)
 	}
+
 	return reviews
 }
 
@@ -419,6 +437,7 @@ func ConvertDOMReviewsToReviews(domReviews []DOMReview) []Review {
 			ReplyText:      dr.ReplyText,
 			Source:         "Google Maps public page",
 		}
+
 		if published, err := time.Parse(time.RFC3339, dr.PublishedAt); err == nil && !published.Before(earliestReviewPublishedAt) && !published.After(time.Now().Add(reviewPublishedAtFutureSkew)) {
 			review.PublishedAt = &published
 		}
@@ -458,18 +477,23 @@ func dedupeDOMReviewsAgainstPrimary(primary, domReviews []Review) []Review {
 				if len(next.Description) > len(old.Description) {
 					old.Description = next.Description
 				}
+
 				if old.AuthorURL == "" {
 					old.AuthorURL = next.AuthorURL
 				}
+
 				if old.ReplyText == "" {
 					old.ReplyText = next.ReplyText
 				}
+
 				if old.PublishedAt == nil {
 					old.PublishedAt = next.PublishedAt
 				}
+
 				if len(next.Images) > len(old.Images) {
 					old.Images = next.Images
 				}
+
 				continue
 			}
 		}
@@ -497,9 +521,11 @@ func decodeDOMReviews(raw []any) []DOMReview {
 		if v, ok := reviewMap["published_at"].(string); ok {
 			review.PublishedAt = v
 		}
+
 		if v, ok := reviewMap["reply_text"].(string); ok {
 			review.ReplyText = v
 		}
+
 		if v, ok := reviewMap["review_id"].(string); ok {
 			review.ReviewID = v
 		}
@@ -553,7 +579,7 @@ func decodeDOMReviews(raw []any) []DOMReview {
 
 // extractReviewsFromPage extracts reviews directly from the page DOM
 // This is a fallback when the RPC API fails
-func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, expectedCount int) ([]DOMReview, error) {
+func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, expectedCount int) []DOMReview {
 	log.Printf("Attempting DOM-based review extraction")
 
 	// First, try to click the reviews section to open the reviews panel
@@ -617,12 +643,14 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ex
     }`)
 	if sortOpened == true {
 		time.Sleep(time.Second)
+
 		sorted, _ := page.Eval(`() => {
             const option = [...document.querySelectorAll('[role="menuitemradio"], [role="menuitem"], [role="option"]')].find(e => e.textContent.trim() === 'Newest');
             if (!option) return false;
             option.click(); return true;
         }`)
 		log.Printf("Public review newest sort selected: %v", sorted == true)
+
 		if sorted == true {
 			time.Sleep(2 * time.Second)
 		}
@@ -639,7 +667,7 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ex
 	for attempt := 0; attempt < maxScrollAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
-			return reviews, nil
+			return reviews
 		default:
 		}
 
@@ -666,9 +694,11 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ex
 			log.Printf("Review safety limit reached at %d reviews", currentCount)
 			break
 		}
+
 		if expectedCount > 0 && currentCount >= expectedCount {
 			break
 		}
+
 		if currentCount == lastCount {
 			stuckCount++
 			if stuckCount >= 15 {
@@ -696,14 +726,14 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ex
 
 		select {
 		case <-ctx.Done():
-			return reviews, nil
+			return reviews
 		case <-time.After(time.Second):
 		}
 	}
 
 	log.Printf("DOM extraction completed: %d reviews found", len(reviews))
 
-	return reviews, nil
+	return reviews
 }
 
 // FetchReviewsWithFallback attempts RPC-based extraction first, then falls back to DOM
@@ -735,14 +765,10 @@ func FetchReviewsWithFallback(ctx context.Context, params fetchReviewsParams) (F
 
 	// Fallback to DOM-based extraction
 	if params.page != nil {
-		domReviews, domErr := extractReviewsFromPage(ctx, params.page, params.reviewCount)
-		if domErr == nil && len(domReviews) > 0 {
+		domReviews := extractReviewsFromPage(ctx, params.page, params.reviewCount)
+		if len(domReviews) > 0 {
 			log.Printf("DOM extraction successful: %d reviews", len(domReviews))
 			return rpcResponse, domReviews, nil
-		}
-
-		if domErr != nil {
-			log.Printf("DOM extraction failed: %v", domErr)
 		}
 	}
 
