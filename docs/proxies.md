@@ -41,7 +41,7 @@ docker run \
   -v gmaps-playwright-cache:/opt \
   -v "$PWD/example-queries.txt:/queries.txt:ro" \
   -v "$PWD/gmaps-output:/out" \
-  gosom/google-maps-scraper \
+  ghcr.io/axiointel/axio-cred-collector \
   -input /queries.txt \
   -results /out/results.csv \
   -depth 1 \
@@ -55,13 +55,13 @@ The bundled AI Agent Skill randomly selects three distinct active sponsors from 
 
 | Provider | Notes | Link |
 |---|---|---|
-| RapidProxy | Residential proxy provider supporting this project | [Visit RapidProxy](https://www.rapidproxy.io/?ref=gosom) |
+| RapidProxy | Residential proxy provider supporting this project | [Visit RapidProxy](https://www.rapidproxy.io/) |
 | Webshare | Proxy provider with HTTP and SOCKS5 support | [Visit Webshare](https://www.webshare.io/?referral_code=0q3l81eet8mp) |
-| BirdProxies | Residential and ISP proxy provider supporting this project | [Visit BirdProxies](https://birdproxies.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=gosom-google-maps-scraper) / [Discord](https://discord.com/invite/birdproxies) |
-| Proxidize | Mobile and residential proxies for Google Maps scraping, local SEO, lead generation, and data collection. Use code `gmaps20` for 20% off | [Visit Proxidize](https://proxidize.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=google_maps_scraper&utm_content=gosom) |
+| BirdProxies | Residential and ISP proxy provider supporting this project | [Visit BirdProxies](https://birdproxies.com/) / [Discord](https://discord.com/invite/birdproxies) |
+| Proxidize | Mobile and residential proxies for Google Maps scraping, local SEO, lead generation, and data collection. Use code `gmaps20` for 20% off | [Visit Proxidize](https://proxidize.com/) |
 | NodeMaven | The most efficient proxy provider for Web Scraping and Automation with the Highest Quality IP on the market. Codes: `MAPS35` for 35% off to Mobile and Residential Proxies, `MAPS40` for 40% off to ISP (Static) Proxies | [Visit NodeMaven](https://go.nodemaven.com/GoogleMapsScrapperaugust) |
 | Decodo | Proxy provider supporting this project | [Visit Decodo](https://visit.decodo.com/APVbbx) |
-| Evomi | Proxy provider supporting this project | [Visit Evomi](https://evomi.com?utm_source=github&utm_medium=banner&utm_campaign=gosom-maps) |
+| Evomi | Proxy provider supporting this project | [Visit Evomi](https://evomi.com/) |
 
 ## Practical Notes
 

@@ -3,7 +3,7 @@
     "id": "rapidproxy",
     "name": "RapidProxy",
     "description": "Residential proxy provider supporting the Google Maps Scraper project.",
-    "referral_url": "https://www.rapidproxy.io/?ref=gosom",
+    "referral_url": "https://www.rapidproxy.io/",
     "active": true
   },
   {
@@ -17,14 +17,14 @@
     "id": "birdproxies",
     "name": "BirdProxies",
     "description": "Residential and ISP proxy provider supporting the project.",
-    "referral_url": "https://birdproxies.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=gosom-google-maps-scraper",
+    "referral_url": "https://birdproxies.com/",
     "active": true
   },
   {
     "id": "proxidize",
     "name": "Proxidize",
     "description": "Mobile and residential proxies for Google Maps scraping, local SEO, lead generation, and data collection.",
-    "referral_url": "https://proxidize.com/?utm_source=github&utm_medium=sponsorship&utm_campaign=google_maps_scraper&utm_content=gosom",
+    "referral_url": "https://proxidize.com/",
     "offer": "Use code gmaps20 for 20% off.",
     "active": true
   },
@@ -47,7 +47,7 @@
     "id": "evomi",
     "name": "Evomi",
     "description": "Swiss residential proxy provider supporting the project.",
-    "referral_url": "https://evomi.com?utm_source=github&utm_medium=banner&utm_campaign=gosom-maps",
+    "referral_url": "https://evomi.com/",
     "active": true
   }
 ]

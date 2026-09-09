@@ -21,3 +21,4 @@ app/frontend/dist/
 app/frontend/*.tsbuildinfo
 app/frontend/vite.config.js
 app/frontend/vite.config.d.ts
+.dev/

@@ -3,6 +3,10 @@ export interface CollectedReview { id:string; author:string; authorUrl:string|nu
   language?:string|null;translatedLanguage?:string|null;translatedText?:string|null;authorPhoto?:string|null;images?:string[];
 }
 export interface CollectedListing {
+  inputId?:string|null;dataId?:string|null;streetViewUrl?:string|null;
+  popularTimes?:Record<string,Record<string,number>>;creditCards?:string[];
+  reservations?:{source:string|null;url:string|null}[];orderOnline?:{source:string|null;url:string|null}[];menu?:{source:string|null;url:string|null}|null;
+  owner?:{id:string|null;name:string|null;url:string|null}|null;
   id:string; placeId:string|null; cid:string|null; name:string; mapsUrl:string|null; category:string|null; address:string|null;
   latitude:number|null; longitude:number|null; rating:number|null; reviewCount:number|null; distribution:Record<string,number>;
   phone:string|null; website:string|null; emails:string[]; hours:Record<string,string[]>; status:string|null; description:string|null;
@@ -10,7 +14,7 @@ export interface CollectedListing {
   categories?:string[];reviewsUrl?:string|null;thumbnail?:string|null;plusCode?:string|null;
   structuredAddress?:Record<string,string|null|undefined>|null;attributes?:{id?:string|null;name?:string|null;options:{name?:string|null;enabled:boolean;values?:string[]|null}[]}[];
 }
-export interface Dataset { id:string; label:string; importedAt:string; collectedAt:string|null; source:"scraper_import"|"illustrative"; sha256:string; listings:CollectedListing[]; collection?:{provider:"builtin"|"outscraper";requestId?:string;reason?:string;requestedLimit?:number} }
+export interface Dataset { id:string; label:string; importedAt:string; collectedAt:string|null; source:"scraper_import"|"illustrative"; sha256:string; listings:CollectedListing[]; collection?:{provider:"builtin"|"outscraper";partial?:boolean;warning?:string;requestId?:string;reason?:string;requestedLimit?:number} }
 export const demoDataset:Dataset = {
   id:"illustrative", label:"Austin dental market · illustrative", importedAt:"2026-09-06T09:00:00Z", collectedAt:null, source:"illustrative", sha256:"",
   listings:[

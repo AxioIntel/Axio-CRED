@@ -3,7 +3,7 @@ package goposthog
 import (
 	"context"
 
-	"github.com/gosom/google-maps-scraper/tlmt"
+	"github.com/AxioIntel/Axio-CRED/tlmt"
 	"github.com/posthog/posthog-go"
 )
 

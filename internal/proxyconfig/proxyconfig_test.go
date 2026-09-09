@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/gosom/google-maps-scraper/internal/proxyconfig"
+	"github.com/AxioIntel/Axio-CRED/internal/proxyconfig"
 )
 
 func TestResolveInlineCompatibility(t *testing.T) {

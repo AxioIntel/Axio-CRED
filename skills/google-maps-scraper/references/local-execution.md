@@ -19,7 +19,7 @@ When configured, add:
 
 Add `--format json`, `--email`, `--extra-reviews`, `--lang CODE`, or a different positive depth only when selected. Extra reviews require JSON.
 
-The helper uses container `gmaps-scraper-agent`, volume `gmaps-playwright-cache`, image `gosom/google-maps-scraper`, and `-exit-on-inactivity 3m`. By default it pulls the image before starting, so validation checks for the latest release. It retries one failed pull. When a local image already exists and both checks fail, it warns and continues offline; without a local image, it stops with an actionable error.
+The helper uses container `gmaps-scraper-agent`, volume `gmaps-playwright-cache`, image `ghcr.io/axiointel/axio-cred-collector`, and `-exit-on-inactivity 3m`. By default it pulls the image before starting, so validation checks for the latest release. It retries one failed pull. When a local image already exists and both checks fail, it warns and continues offline; without a local image, it stops with an actionable error.
 
 ## Status
 

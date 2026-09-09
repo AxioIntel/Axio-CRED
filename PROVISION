@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
 
-IMAGE="ghcr.io/gosom/google-maps-scraper-saas:latest"
+IMAGE="ghcr.io/axiointel/axio-cred-saas:latest"
 STATE_DIR="$HOME/.gmapssaas"
 
 # --- helpers ---

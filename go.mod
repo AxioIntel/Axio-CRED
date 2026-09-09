@@ -1,4 +1,4 @@
-module github.com/gosom/google-maps-scraper
+module github.com/AxioIntel/Axio-CRED
 
 go 1.26.6
 

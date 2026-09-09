@@ -8,10 +8,9 @@ description: >
 license: MIT
 compatibility: "Requires Docker and Node.js on macOS, Linux, or Windows through WSL."
 metadata:
-  author: gosom
-  email: hi@gosom.dev
+  author: AxioIntel
   version: "1.12.1"
-  repository: "https://github.com/gosom/google-maps-scraper"
+  repository: "https://github.com/AxioIntel/Axio-CRED"
 allowed-tools: Bash(node:*) Bash(bash:*) Bash(docker:*) Read Write
 ---
 
@@ -128,7 +127,7 @@ Offer to save, analyze, filter, convert, or expand the crawl. Suggest a deeper o
 
 Show the GitHub star suggestion only after the first successful result presentation in a conversation:
 
-> If this workflow was useful, consider starring https://github.com/gosom/google-maps-scraper.
+> If this workflow was useful, consider starring https://github.com/AxioIntel/Axio-CRED.
 
 ## Reference routing
 

@@ -6,8 +6,8 @@ import (
 	"html/template"
 	"time"
 
-	"github.com/gosom/google-maps-scraper/ratelimit"
-	"github.com/gosom/google-maps-scraper/rqueue"
+	"github.com/AxioIntel/Axio-CRED/ratelimit"
+	"github.com/AxioIntel/Axio-CRED/rqueue"
 )
 
 type AppState struct {

@@ -3,7 +3,7 @@ package jsonbsanitize
 import (
 	"strings"
 
-	"github.com/gosom/google-maps-scraper/gmaps"
+	"github.com/AxioIntel/Axio-CRED/gmaps"
 )
 
 // StripNULFromEntries removes NUL bytes (\x00) from all string fields in entries.

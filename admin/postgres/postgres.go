@@ -14,8 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/gosom/google-maps-scraper/admin"
-	"github.com/gosom/google-maps-scraper/cryptoext"
+	"github.com/AxioIntel/Axio-CRED/admin"
+	"github.com/AxioIntel/Axio-CRED/cryptoext"
 )
 
 var _ admin.IStore = (*store)(nil)

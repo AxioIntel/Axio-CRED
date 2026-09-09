@@ -6,12 +6,12 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/gosom/google-maps-scraper/admin"
-	adminpg "github.com/gosom/google-maps-scraper/admin/postgres"
-	gocli "github.com/gosom/google-maps-scraper/cli"
-	"github.com/gosom/google-maps-scraper/cryptoext"
-	"github.com/gosom/google-maps-scraper/env"
-	saas "github.com/gosom/google-maps-scraper/saas"
+	"github.com/AxioIntel/Axio-CRED/admin"
+	adminpg "github.com/AxioIntel/Axio-CRED/admin/postgres"
+	gocli "github.com/AxioIntel/Axio-CRED/cli"
+	"github.com/AxioIntel/Axio-CRED/cryptoext"
+	"github.com/AxioIntel/Axio-CRED/env"
+	saas "github.com/AxioIntel/Axio-CRED/saas"
 )
 
 var Command = &cli.Command{

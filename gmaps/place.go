@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gosom/scrapemate"
 
-	"github.com/gosom/google-maps-scraper/exiter"
+	"github.com/AxioIntel/Axio-CRED/exiter"
 )
 
 type PlaceJobOptions func(*PlaceJob)

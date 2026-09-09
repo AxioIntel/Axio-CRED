@@ -11,7 +11,7 @@ const docTemplate = `{
         "title": "{{.Title}}",
         "contact": {
             "name": "API Support",
-            "url": "https://github.com/gosom/google-maps-scraper"
+            "url": "https://github.com/AxioIntel/Axio-CRED"
         },
         "license": {
             "name": "MIT",
