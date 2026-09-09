@@ -1,6 +1,6 @@
 # Outscraper fallback — local MVP
 
-Implemented in open PR #1, reviewed code `9bd026b`, on 2026-09-09. Not deployed. **Paid calls remain disabled at the user's request.** The existing local API key was preserved. No live Outscraper collection or credential-validation call was made; execution was tested with injected provider responses.
+Implemented in merged PR #1, reviewed code `9bd026b`, on 2026-09-09. Not deployed. **Paid calls remain disabled at the user's request.** The existing local API key was preserved. No live Outscraper collection or credential-validation call was made; execution was tested with injected provider responses.
 
 ## Configuration
 

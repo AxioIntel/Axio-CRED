@@ -4,7 +4,7 @@ Date: 2026-09-09. Environment: local Windows, MySQL 8, API `127.0.0.1:8080`, Vit
 
 ## Latest PR verification
 
-Verified revision: `9bd026b` in open, unmerged [PR #1](https://github.com/AxioIntel/Axio-CRED/pull/1). [CI run 34314642463](https://github.com/AxioIntel/Axio-CRED/actions/runs/34314642463) passed all 12 checks. Local tests passed: 74 backend + 48 frontend (122 total), plus lint, TypeScript and builds.
+Verified revision: `9bd026b` in merged [PR #1](https://github.com/AxioIntel/Axio-CRED/pull/1). [CI run 34314642463](https://github.com/AxioIntel/Axio-CRED/actions/runs/34314642463) passed all 12 checks. Local tests passed: 74 backend + 48 frontend (122 total), plus lint, TypeScript and builds.
 
 Regression tests verify production API denial, actual MySQL2 certificate/hostname TLS options, PayPal rollback/retry behavior and reserved fallback resumption without additional submissions. Disposable MySQL integration confirms rollback after a subscription insert and exactly one processing of concurrent event retries. No live provider, payment or Azure deployment was used for these checks.
 

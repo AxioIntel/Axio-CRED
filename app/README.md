@@ -4,7 +4,7 @@
 
 The customer app is in this folder; the repository Go scraper is the chosen public-data collector. The official Places collection path is disabled.
 
-Production customer API access returns **503** until tenant authorization exists; only health/readiness API routes remain accessible. Local development continues to work. Code and documentation are currently proposed in [PR #1](https://github.com/AxioIntel/Axio-CRED/pull/1), not deployed.
+Production customer API access returns **503** until tenant authorization exists; only health/readiness API routes remain accessible. Local development continues to work. Implementation through `9bd026b` was merged in [PR #1](https://github.com/AxioIntel/Axio-CRED/pull/1) on 9 September 2026. These documentation corrections are a follow-up; no production deployment is claimed.
 
 ## Local preview
 

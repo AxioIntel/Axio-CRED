@@ -1,6 +1,6 @@
 # Axio-CRED capability status
 
-Source: open, unmerged [PR #1](https://github.com/AxioIntel/Axio-CRED/pull/1), reviewed code `9bd026b`, 9 September 2026. Implemented means present and tested in the local MVP, not available as a hosted production service.
+Source: merged [PR #1](https://github.com/AxioIntel/Axio-CRED/pull/1), reviewed code `9bd026b`, 9 September 2026. Implemented means present and tested in the local MVP, not available as a hosted production service.
 
 | Capability | Current behavior | Limit / next delivery gate |
 |---|---|---|
