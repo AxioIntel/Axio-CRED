@@ -1,0 +1,7 @@
+# One Google place ID per line, then optionally "owned" or "competitor" (default owned).
+# The purpose is used only the first time AxioIntel sees a place; after that it is changed on the
+# dashboard. Blank lines and lines starting with # are ignored.
+#
+# Copy this file to places.txt beside collect.sh and list the places to collect.
+
+ChIJHy8fZ7P6DDkREnuw1bPQYfw owned

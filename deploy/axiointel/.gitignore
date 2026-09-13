@@ -1,0 +1,4 @@
+# Local to the collector's machine: the places it collects, and AxioIntel's sender, fetched
+# from Axio-Backend so it never drifts from the endpoint it posts to.
+places.txt
+push_native.py
