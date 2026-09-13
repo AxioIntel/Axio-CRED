@@ -80,6 +80,7 @@ while read -r place purpose _; do
 
   name="axiointel-collect-$$-${place:0:40}"
   echo "$(date -u +%FT%TZ) collecting $place"
+  started=$(date +%s)
   timeout --kill-after=30 "$TIMEOUT" \
     docker run --rm --name "$name" -e DISABLE_TELEMETRY=1 -v "$run:/work" \
       ${proxy[@]+"${proxy[@]}"} "$IMAGE" \
@@ -88,6 +89,8 @@ while read -r place purpose _; do
       ${proxy_flag[@]+"${proxy_flag[@]}"} \
     > "$run/collector.log" 2>&1
   code=$?
+  elapsed=$(( $(date +%s) - started ))
+  echo "$(date -u +%FT%TZ) collector finished $place in ${elapsed}s (exit $code)"
   # A timed-out docker client does not always take its container with it.
   [ "$code" -eq 124 ] || [ "$code" -eq 137 ] && docker rm -f "$name" >/dev/null 2>&1
   # Never keep proxy credentials a collector echoed into its log.
@@ -107,8 +110,14 @@ while read -r place purpose _; do
     stopped=(--incomplete)
     echo "$(date -u +%FT%TZ) collector exit $code for $place; sending what it collected as incomplete" >&2
   fi
+  # AxioIntel compares the collector with pulls made from the dashboard on speed. Older copies
+  # of the sender do not know the flag, so it is passed only to one that does.
+  timing=()
+  if python3 "$PUSHER" --help 2>/dev/null | grep -q -- --collected-seconds; then
+    timing=(--collected-seconds "$elapsed")
+  fi
   if ! python3 "$PUSHER" "$run/results.jsonl" --place-id "$place" --purpose "${purpose:-owned}" \
-       ${stopped[@]+"${stopped[@]}"}; then
+       ${stopped[@]+"${stopped[@]}"} ${timing[@]+"${timing[@]}"}; then
     failures=$((failures + 1))
   fi
 done < "$PLACES"
