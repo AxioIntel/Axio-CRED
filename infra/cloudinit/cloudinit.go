@@ -35,7 +35,7 @@ type Config struct {
 	// RegistryToken is the token/password for registry authentication.
 	RegistryToken string
 
-	// Image is the full image reference (e.g., "ghcr.io/gosom/google-maps-scraper-pro:latest").
+	// Image is the full image reference (e.g., "ghcr.io/ghcr.io/axiointel/axio-cred-collector-pro:latest").
 	Image string
 }
 

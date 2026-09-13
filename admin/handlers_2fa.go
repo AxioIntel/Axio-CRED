@@ -10,8 +10,8 @@ import (
 
 	"github.com/pquerna/otp/totp"
 
-	"github.com/gosom/google-maps-scraper/cryptoext"
-	"github.com/gosom/google-maps-scraper/log"
+	"github.com/AxioIntel/Axio-CRED/cryptoext"
+	"github.com/AxioIntel/Axio-CRED/log"
 )
 
 // pendingBackupCodesKey returns the config key for storing pending backup codes.

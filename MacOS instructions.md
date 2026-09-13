@@ -31,7 +31,7 @@ After installing Go, verify it:
 Open your terminal and clone the repository:
 
 ```
-git clone https://github.com/gosom/google-maps-scraper.git
+git clone https://github.com/AxioIntel/Axio-CRED.git
 cd google-maps-scraper
 ```
 

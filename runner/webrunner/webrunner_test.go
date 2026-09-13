@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gosom/google-maps-scraper/runner"
-	"github.com/gosom/google-maps-scraper/web"
+	"github.com/AxioIntel/Axio-CRED/runner"
+	"github.com/AxioIntel/Axio-CRED/web"
 	"github.com/gosom/scrapemate"
 )
 

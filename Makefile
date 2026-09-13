@@ -56,7 +56,7 @@ build-saas: ## builds the SaaS binary (API server, worker, admin)
 docker-saas: ## builds docker image for SaaS
 	docker build -f Dockerfile.saas -t gmapssaas:$(VERSION) .
 
-SAAS_IMAGE ?= ghcr.io/gosom/google-maps-scraper-saas:latest
+SAAS_IMAGE ?= ghcr.io/axiointel/axio-cred-saas:latest
 
 saas-docker-push: docker-saas ## builds and pushes the SaaS docker image
 	docker tag gmapssaas:$(VERSION) $(SAAS_IMAGE)

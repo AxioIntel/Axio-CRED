@@ -16,11 +16,11 @@ import (
 	"github.com/mattn/go-runewidth"
 	"golang.org/x/term"
 
-	"github.com/gosom/google-maps-scraper/internal/proxyconfig"
-	"github.com/gosom/google-maps-scraper/s3uploader"
-	"github.com/gosom/google-maps-scraper/tlmt"
-	"github.com/gosom/google-maps-scraper/tlmt/gonoop"
-	"github.com/gosom/google-maps-scraper/tlmt/goposthog"
+	"github.com/AxioIntel/Axio-CRED/internal/proxyconfig"
+	"github.com/AxioIntel/Axio-CRED/s3uploader"
+	"github.com/AxioIntel/Axio-CRED/tlmt"
+	"github.com/AxioIntel/Axio-CRED/tlmt/gonoop"
+	"github.com/AxioIntel/Axio-CRED/tlmt/goposthog"
 	"github.com/gosom/scrapemate/scrapemateapp"
 )
 
@@ -352,8 +352,7 @@ func AppendBrowserCapacityOptions(opts []func(*scrapemateapp.Config) error, cfg 
 
 func Banner() {
 	message1 := "🌍 Google Maps Scraper"
-	message2 := "⭐ If you find this project useful, please star it on GitHub: https://github.com/gosom/google-maps-scraper"
-	message3 := "💖 Consider sponsoring to support development: https://github.com/sponsors/gosom"
+	message2 := "⭐ If you find this project useful, please star it on GitHub: https://github.com/AxioIntel/Axio-CRED"
 
-	fmt.Fprintln(os.Stderr, banner([]string{message1, message2, message3}, 0))
+	fmt.Fprintln(os.Stderr, banner([]string{message1, message2}, 0))
 }

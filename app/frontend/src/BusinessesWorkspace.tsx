@@ -8,7 +8,7 @@ import ReputationDashboard from "./ReputationDashboard";
 import { listingIdentity } from "./evidence-insights";
 
 interface Result { dataset:Dataset; listing:CollectedListing }
-interface SearchJob {id:string;status:"running"|"completed"|"failed";dataset?:Dataset;error?:string;cached?:boolean}
+interface SearchJob {id:string;status:"running"|"completed"|"failed"|"cancelled";dataset?:Dataset;error?:string;cached?:boolean}
 async function request<T>(path:string,body?:unknown):Promise<T>{const response=await fetch(path,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:undefined);const result=await response.json();if(!response.ok)throw new Error(result.error??"Request failed.");return result;}
 export function BusinessPicker({close,added,purpose="owned"}:{close:()=>void;added:()=>void;purpose?:"owned"|"competitor"}) {
   const [destination,setDestination]=useState(purpose);const [savedName,setSavedName]=useState("");
@@ -18,7 +18,7 @@ export function BusinessPicker({close,added,purpose="owned"}:{close:()=>void;add
   useEffect(()=>{dialog.current?.showModal();let active=true;Promise.all([request<Dataset[]>("/api/intelligence/imports"),request<{available:boolean}>("/api/business-search/status")]).then(([data,status])=>{if(active){setDatasets(rows=>[...rows,...data.filter(dataset=>!rows.some(row=>row.id===dataset.id))]);setAvailable(status.available);setLoaded(true)}}).catch(e=>{if(active)setError(e.message)});return()=>{active=false;};},[]);
   useEffect(()=>{
     if(job?.status!=="running")return;let active=true;let timer:ReturnType<typeof setTimeout>;
-    const poll=async()=>{try{const result=await request<SearchJob>(`/api/business-search/${job.id}`);if(!active)return;setJob(result);if(result.status==="completed"&&result.dataset){setDatasets(rows=>[result.dataset!,...rows.filter(d=>d.id!==result.dataset!.id)]);setSelected(null);}if(result.status==="failed")setError(result.error??"Search failed.");if(result.status==="running")timer=setTimeout(()=>void poll(),2000);}catch(e){if(active){setError(e instanceof Error?e.message:"Search status unavailable.");timer=setTimeout(()=>void poll(),4000);}}};
+    const poll=async()=>{try{const result=await request<SearchJob>(`/api/business-search/${job.id}`);if(!active)return;setJob(result);if(result.status==="completed"&&result.dataset){setDatasets(rows=>[result.dataset!,...rows.filter(d=>d.id!==result.dataset!.id)]);setSelected(null);}if(result.status==="failed"||result.status==="cancelled")setError(result.error??(result.status==="cancelled"?"Collection cancelled.":"Search failed."));if(result.status==="running")timer=setTimeout(()=>void poll(),2000);}catch(e){if(active){setError(e instanceof Error?e.message:"Search status unavailable.");timer=setTimeout(()=>void poll(),4000);}}};
     timer=setTimeout(()=>void poll(),1000);return()=>{active=false;clearTimeout(timer);};
   },[job?.id,job?.status]);
   const seen=new Set<string>();

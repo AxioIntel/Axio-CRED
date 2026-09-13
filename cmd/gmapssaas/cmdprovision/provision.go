@@ -12,17 +12,17 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/gosom/google-maps-scraper/admin"
-	adminpg "github.com/gosom/google-maps-scraper/admin/postgres"
-	gocli "github.com/gosom/google-maps-scraper/cli"
-	"github.com/gosom/google-maps-scraper/cmd/gmapssaas/cmdcommon"
-	"github.com/gosom/google-maps-scraper/cryptoext"
-	"github.com/gosom/google-maps-scraper/infra"
-	"github.com/gosom/google-maps-scraper/infra/digitalocean"
-	"github.com/gosom/google-maps-scraper/infra/hetzner"
-	"github.com/gosom/google-maps-scraper/infra/vps"
-	"github.com/gosom/google-maps-scraper/migrations"
-	"github.com/gosom/google-maps-scraper/postgres"
+	"github.com/AxioIntel/Axio-CRED/admin"
+	adminpg "github.com/AxioIntel/Axio-CRED/admin/postgres"
+	gocli "github.com/AxioIntel/Axio-CRED/cli"
+	"github.com/AxioIntel/Axio-CRED/cmd/gmapssaas/cmdcommon"
+	"github.com/AxioIntel/Axio-CRED/cryptoext"
+	"github.com/AxioIntel/Axio-CRED/infra"
+	"github.com/AxioIntel/Axio-CRED/infra/digitalocean"
+	"github.com/AxioIntel/Axio-CRED/infra/hetzner"
+	"github.com/AxioIntel/Axio-CRED/infra/vps"
+	"github.com/AxioIntel/Axio-CRED/migrations"
+	"github.com/AxioIntel/Axio-CRED/postgres"
 )
 
 type providerResult struct {
@@ -532,7 +532,7 @@ func buildAndPushImage(p *gocli.Prompter, state *ProvisionState) error {
 	}
 
 	if !confirm {
-		imageName, err := p.Input("Image name (e.g., ghcr.io/gosom/google-maps-scraper-saas:latest)", "ghcr.io/gosom/google-maps-scraper-saas:latest")
+		imageName, err := p.Input("Image name (e.g., ghcr.io/axiointel/axio-cred-saas:latest)", "ghcr.io/axiointel/axio-cred-saas:latest")
 		if err != nil {
 			return err
 		}
@@ -571,7 +571,7 @@ func buildAndPushImage(p *gocli.Prompter, state *ProvisionState) error {
 			return err
 		}
 
-		imageName, err := p.Input("Image name (e.g., username/gmapssaas:latest)", "ghcr.io/gosom/google-maps-scraper-saas:latest")
+		imageName, err := p.Input("Image name (e.g., username/gmapssaas:latest)", "ghcr.io/axiointel/axio-cred-saas:latest")
 		if err != nil {
 			return err
 		}

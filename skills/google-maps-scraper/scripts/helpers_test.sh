@@ -104,7 +104,7 @@ PATH="$fake_bin:$PATH" bash "$script_dir/run-local.sh" \
 	--output-dir "$output_dir" \
 	--depth 1 >/dev/null
 
-if [[ $(grep -c '^pull gosom/google-maps-scraper$' "$docker_log") -ne 1 ]]; then
+if [[ $(grep -c '^pull ghcr.io/axiointel/axio-cred-collector$' "$docker_log") -ne 1 ]]; then
 	echo "run-local.sh did not check for the latest Docker image" >&2
 	exit 1
 fi
@@ -130,7 +130,7 @@ if ! DOCKER_PULL_FAIL=1 PATH="$fake_bin:$PATH" bash "$script_dir/run-local.sh" \
 	exit 1
 fi
 
-if [[ $(grep -c '^pull gosom/google-maps-scraper$' "$docker_log") -ne 2 ]]; then
+if [[ $(grep -c '^pull ghcr.io/axiointel/axio-cred-collector$' "$docker_log") -ne 2 ]]; then
 	echo "run-local.sh did not retry a failed Docker image update check once" >&2
 	exit 1
 fi

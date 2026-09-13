@@ -1,6 +1,6 @@
 # Axio-CRED Azure OpenAI
 
-Verified 7 September 2026. This connects the local MVP's review analysis to Azure; it does not deploy the web app to Azure.
+This document records historical provider setup from 7–8 September 2026. Account state, quota and model availability were not revalidated on 9 September. The later GPT-5.4 section supersedes the initial deployment selection below. This connects local analysis to Azure; it does not deploy the web app. Production customer API access remains blocked pending tenant authorization.
 
 ## Deployed resource
 

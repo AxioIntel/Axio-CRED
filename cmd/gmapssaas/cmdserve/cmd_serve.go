@@ -10,19 +10,19 @@ import (
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 	"github.com/urfave/cli/v3"
 
-	"github.com/gosom/google-maps-scraper/admin"
-	adminpostgres "github.com/gosom/google-maps-scraper/admin/postgres"
-	"github.com/gosom/google-maps-scraper/api"
-	_ "github.com/gosom/google-maps-scraper/api/docs" // registers swagger docs
-	apipostgres "github.com/gosom/google-maps-scraper/api/postgres"
-	"github.com/gosom/google-maps-scraper/cryptoext"
-	"github.com/gosom/google-maps-scraper/env"
-	"github.com/gosom/google-maps-scraper/httpext"
-	"github.com/gosom/google-maps-scraper/log"
-	"github.com/gosom/google-maps-scraper/postgres"
-	ratelimitpostgres "github.com/gosom/google-maps-scraper/ratelimit/postgres"
-	"github.com/gosom/google-maps-scraper/rqueue"
-	saas "github.com/gosom/google-maps-scraper/saas"
+	"github.com/AxioIntel/Axio-CRED/admin"
+	adminpostgres "github.com/AxioIntel/Axio-CRED/admin/postgres"
+	"github.com/AxioIntel/Axio-CRED/api"
+	_ "github.com/AxioIntel/Axio-CRED/api/docs" // registers swagger docs
+	apipostgres "github.com/AxioIntel/Axio-CRED/api/postgres"
+	"github.com/AxioIntel/Axio-CRED/cryptoext"
+	"github.com/AxioIntel/Axio-CRED/env"
+	"github.com/AxioIntel/Axio-CRED/httpext"
+	"github.com/AxioIntel/Axio-CRED/log"
+	"github.com/AxioIntel/Axio-CRED/postgres"
+	ratelimitpostgres "github.com/AxioIntel/Axio-CRED/ratelimit/postgres"
+	"github.com/AxioIntel/Axio-CRED/rqueue"
+	saas "github.com/AxioIntel/Axio-CRED/saas"
 )
 
 var Command = &cli.Command{

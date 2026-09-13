@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gosom/google-maps-scraper/scraper"
+	"github.com/AxioIntel/Axio-CRED/scraper"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,20 +40,20 @@ func TestResolveRegistryImage(t *testing.T) {
 		{
 			name:       "full ghcr image remains unchanged",
 			registry:   "ghcr.io",
-			image:      "ghcr.io/gosom/google-maps-scraper-saas:latest",
-			wantResult: "ghcr.io/gosom/google-maps-scraper-saas:latest",
+			image:      "ghcr.io/axiointel/axio-cred-saas:latest",
+			wantResult: "ghcr.io/axiointel/axio-cred-saas:latest",
 		},
 		{
 			name:       "short image is prefixed by registry",
 			registry:   "ghcr.io",
-			image:      "gosom/google-maps-scraper-saas:latest",
-			wantResult: "ghcr.io/gosom/google-maps-scraper-saas:latest",
+			image:      "axiointel/axio-cred-saas:latest",
+			wantResult: "ghcr.io/axiointel/axio-cred-saas:latest",
 		},
 		{
 			name:       "registry slash and image slash are normalized",
 			registry:   "ghcr.io/",
-			image:      "/gosom/google-maps-scraper-saas:latest",
-			wantResult: "ghcr.io/gosom/google-maps-scraper-saas:latest",
+			image:      "/axiointel/axio-cred-saas:latest",
+			wantResult: "ghcr.io/axiointel/axio-cred-saas:latest",
 		},
 		{
 			name:       "localhost registry in image stays unchanged",

@@ -7,16 +7,16 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/gosom/google-maps-scraper/cmd/gmapssaas/cmdadmin"
-	"github.com/gosom/google-maps-scraper/cmd/gmapssaas/cmdprovision"
-	"github.com/gosom/google-maps-scraper/cmd/gmapssaas/cmdserve"
-	"github.com/gosom/google-maps-scraper/cmd/gmapssaas/cmdupdate"
-	"github.com/gosom/google-maps-scraper/cmd/gmapssaas/cmdworker"
-	"github.com/gosom/google-maps-scraper/log"
+	"github.com/AxioIntel/Axio-CRED/cmd/gmapssaas/cmdadmin"
+	"github.com/AxioIntel/Axio-CRED/cmd/gmapssaas/cmdprovision"
+	"github.com/AxioIntel/Axio-CRED/cmd/gmapssaas/cmdserve"
+	"github.com/AxioIntel/Axio-CRED/cmd/gmapssaas/cmdupdate"
+	"github.com/AxioIntel/Axio-CRED/cmd/gmapssaas/cmdworker"
+	"github.com/AxioIntel/Axio-CRED/log"
 
 	// Register infrastructure providers.
-	_ "github.com/gosom/google-maps-scraper/infra/digitalocean"
-	_ "github.com/gosom/google-maps-scraper/infra/hetzner"
+	_ "github.com/AxioIntel/Axio-CRED/infra/digitalocean"
+	_ "github.com/AxioIntel/Axio-CRED/infra/hetzner"
 )
 
 func main() {

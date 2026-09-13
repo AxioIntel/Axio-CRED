@@ -11,7 +11,7 @@ import (
 
 	"github.com/gosom/scrapemate"
 
-	"github.com/gosom/google-maps-scraper/gmaps"
+	"github.com/AxioIntel/Axio-CRED/gmaps"
 )
 
 const (

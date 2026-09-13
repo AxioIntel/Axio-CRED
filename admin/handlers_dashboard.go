@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/gosom/google-maps-scraper/log"
+	"github.com/AxioIntel/Axio-CRED/log"
 )
 
 // DashboardHandler renders the admin dashboard.

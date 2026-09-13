@@ -8,9 +8,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gosom/google-maps-scraper/api"
-	"github.com/gosom/google-maps-scraper/cryptoext"
-	"github.com/gosom/google-maps-scraper/log"
+	"github.com/AxioIntel/Axio-CRED/api"
+	"github.com/AxioIntel/Axio-CRED/cryptoext"
+	"github.com/AxioIntel/Axio-CRED/log"
 )
 
 var (

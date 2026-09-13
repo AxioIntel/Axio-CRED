@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/gosom/google-maps-scraper/gmaps"
+	"github.com/AxioIntel/Axio-CRED/gmaps"
 )
 
 func TestMapsSeedPreservesPlaceID(t *testing.T) {

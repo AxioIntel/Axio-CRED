@@ -7,11 +7,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/urfave/cli/v3"
 
-	"github.com/gosom/google-maps-scraper/cmd/gmapssaas/cmdcommon"
-	"github.com/gosom/google-maps-scraper/cmd/gmapssaas/cmdprovision"
-	"github.com/gosom/google-maps-scraper/infra"
-	"github.com/gosom/google-maps-scraper/infra/digitalocean"
-	"github.com/gosom/google-maps-scraper/migrations"
+	"github.com/AxioIntel/Axio-CRED/cmd/gmapssaas/cmdcommon"
+	"github.com/AxioIntel/Axio-CRED/cmd/gmapssaas/cmdprovision"
+	"github.com/AxioIntel/Axio-CRED/infra"
+	"github.com/AxioIntel/Axio-CRED/infra/digitalocean"
+	"github.com/AxioIntel/Axio-CRED/migrations"
 )
 
 type Deployer interface {

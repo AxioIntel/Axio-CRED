@@ -9,7 +9,7 @@ linters-settings:
     min-occurrences: 3
     gci:
     sections:
-      - prefix(github.com/gosom/ledger)
+      - prefix(github.com/AxioIntel/Axio-CRED)
     custom-order: true
   gocritic:
     enabled-tags:

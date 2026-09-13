@@ -10,11 +10,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/AxioIntel/Axio-CRED/deduper"
+	"github.com/AxioIntel/Axio-CRED/exiter"
+	"github.com/AxioIntel/Axio-CRED/gmaps"
+	"github.com/AxioIntel/Axio-CRED/grid"
 	"github.com/google/uuid"
-	"github.com/gosom/google-maps-scraper/deduper"
-	"github.com/gosom/google-maps-scraper/exiter"
-	"github.com/gosom/google-maps-scraper/gmaps"
-	"github.com/gosom/google-maps-scraper/grid"
 	"github.com/gosom/scrapemate"
 )
 

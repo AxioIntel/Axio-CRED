@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/gosom/google-maps-scraper/runner"
+	"github.com/AxioIntel/Axio-CRED/runner"
 )
 
 func TestSetPayloadsIncludesBrowserPoolConfig(t *testing.T) {

@@ -26,12 +26,8 @@ The provisioning wizard supports VPS, DigitalOcean, and Hetzner deployments. If 
 | Hetzner | [Create account / deploy](https://hetzner.cloud/?ref=ihtQPa0cT18n) |
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gosom/google-maps-scraper/main/PROVISION | sh
+curl -fsSL https://raw.githubusercontent.com/AxioIntel/Axio-CRED/main/PROVISION | sh
 ```
-
-Walkthroughs:
-- [Deploy your own Maps scraping API in 5 minutes](https://gosom.dev/deploy-your-own-maps-scraping-api-in-5-minutes/)
-- [Video walkthrough on YouTube](https://www.youtube.com/watch?v=STG9mZw_nac)
 
 The interactive wizard will guide you through:
 1. Docker image setup (build your own or use the public image)
@@ -46,7 +42,7 @@ State is saved to `~/.gmapssaas/` so you can resume if interrupted.
 After the initial deployment, push updates with:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gosom/google-maps-scraper/main/PROVISION | sh -s update
+curl -fsSL https://raw.githubusercontent.com/AxioIntel/Axio-CRED/main/PROVISION | sh -s update
 ```
 
 ## REST API

@@ -5,8 +5,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/gosom/google-maps-scraper/httpext"
-	"github.com/gosom/google-maps-scraper/log"
+	"github.com/AxioIntel/Axio-CRED/httpext"
+	"github.com/AxioIntel/Axio-CRED/log"
 )
 
 // Routes sets up all admin routes.

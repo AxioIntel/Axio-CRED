@@ -130,7 +130,7 @@ if [[ -n "$proxy_file" ]]; then
 fi
 
 container_name="gmaps-scraper-agent"
-image_name="gosom/google-maps-scraper"
+image_name="ghcr.io/axiointel/axio-cred-collector"
 result_name="results.$output_format"
 
 docker_args=(

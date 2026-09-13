@@ -3,7 +3,7 @@ package gmaps_test
 import (
 	"testing"
 
-	"github.com/gosom/google-maps-scraper/gmaps"
+	"github.com/AxioIntel/Axio-CRED/gmaps"
 )
 
 func TestNewGmapJobBuildsURLFromQuery(t *testing.T) {

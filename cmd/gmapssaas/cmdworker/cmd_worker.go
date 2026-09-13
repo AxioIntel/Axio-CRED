@@ -14,11 +14,11 @@ import (
 
 	"github.com/urfave/cli/v3"
 
-	"github.com/gosom/google-maps-scraper/log"
-	"github.com/gosom/google-maps-scraper/postgres"
-	"github.com/gosom/google-maps-scraper/rqueue"
-	saas "github.com/gosom/google-maps-scraper/saas"
-	"github.com/gosom/google-maps-scraper/scraper"
+	"github.com/AxioIntel/Axio-CRED/log"
+	"github.com/AxioIntel/Axio-CRED/postgres"
+	"github.com/AxioIntel/Axio-CRED/rqueue"
+	saas "github.com/AxioIntel/Axio-CRED/saas"
+	"github.com/AxioIntel/Axio-CRED/scraper"
 )
 
 // workerStats tracks runtime statistics for the health endpoint.

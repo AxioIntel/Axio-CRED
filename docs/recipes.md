@@ -23,7 +23,7 @@ docker run \
   -v gmaps-playwright-cache:/opt \
   -v "$PWD/example-queries.txt:/queries.txt:ro" \
   -v "$PWD/gmaps-output:/out" \
-  gosom/google-maps-scraper \
+  ghcr.io/axiointel/axio-cred-collector \
   -input /queries.txt \
   -results /out/results.csv \
   -depth 1 \
@@ -39,7 +39,7 @@ docker run \
   -v gmaps-playwright-cache:/opt \
   -v "$PWD/example-queries.txt:/queries.txt:ro" \
   -v "$PWD/gmaps-output:/out" \
-  gosom/google-maps-scraper \
+  ghcr.io/axiointel/axio-cred-collector \
   -input /queries.txt \
   -results /out/results.csv \
   -depth 1 \
@@ -56,7 +56,7 @@ docker run \
   -v gmaps-playwright-cache:/opt \
   -v "$PWD/example-queries.txt:/queries.txt:ro" \
   -v "$PWD/gmaps-output:/out" \
-  gosom/google-maps-scraper \
+  ghcr.io/axiointel/axio-cred-collector \
   -input /queries.txt \
   -results /out/results.json \
   -json \
@@ -82,7 +82,7 @@ docker run \
   -v gmaps-playwright-cache:/opt \
   -v "$PWD/example-queries.txt:/queries.txt:ro" \
   -v "$PWD/gmaps-output:/out" \
-  gosom/google-maps-scraper \
+  ghcr.io/axiointel/axio-cred-collector \
   -input /queries.txt \
   -results /out/results.csv \
   -depth 5 \
@@ -104,7 +104,7 @@ docker run \
   -v gmaps-playwright-cache:/opt \
   -v "$PWD/gmapsdata:/gmapsdata" \
   -p 8080:8080 \
-  gosom/google-maps-scraper \
+  ghcr.io/axiointel/axio-cred-collector \
   -data-folder /gmapsdata
 ```
 
@@ -117,7 +117,7 @@ Client examples are available in `examples/examples-api/`.
 Use the SaaS edition when you need multiple users, API keys, an admin UI, job queue, workers, and cloud provisioning:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/gosom/google-maps-scraper/main/PROVISION | sh
+curl -fsSL https://raw.githubusercontent.com/AxioIntel/Axio-CRED/main/PROVISION | sh
 ```
 
 See [SaaS documentation](saas.md).
