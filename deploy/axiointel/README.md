@@ -61,7 +61,9 @@ A small Linux VM is enough, collecting one place at a time: Ubuntu 24.04, 2 vCPU
    sudo deploy/axiointel/collect.sh
    ```
    A profile appears in AxioIntel under `native/<place id>`. A place with a few hundred reviews
-   takes several minutes; the collector's budget is 20 minutes per place.
+   takes several minutes; the collector's budget is 20 minutes per place. How long each place
+   took is sent with it, and AxioIntel's **Pull speed** screen sets it beside pulls of the same
+   place made from the dashboard.
 
 7. **Schedule it.** Once a day is plenty for most places.
    ```bash
