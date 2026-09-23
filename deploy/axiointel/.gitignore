@@ -1,4 +1,5 @@
-# Local to the collector's machine: the places it collects, and AxioIntel's sender, fetched
-# from Axio-Backend so it never drifts from the endpoint it posts to.
+# Local to the collector's machine: the places it collects, and AxioIntel's own programs,
+# fetched from Axio-Backend so they never drift from the endpoints they talk to.
 places.txt
 push_native.py
+fetch_targets.py
