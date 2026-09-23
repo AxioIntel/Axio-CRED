@@ -314,46 +314,43 @@ func (e *Entry) CsvRow() []string {
 	}
 }
 
+// AddExtraReviews adds every RPC page's reviews once each, deduped against `UserReviews` and
+// against each other by id -- an id `UserReviews` already carries is never repeated here (see
+// `reviewSet`). A page that fails to parse is logged and skipped rather than silently
+// contributing nothing: `extractReviews` below is what did that before this existed.
 func (e *Entry) AddExtraReviews(pages [][]byte) {
 	if len(pages) == 0 {
 		return
 	}
 
+	set := newReviewSet(e.UserReviews, defaultReviewCap)
 	for _, page := range pages {
-		reviews := extractReviews(page)
-		if len(reviews) > 0 {
-			e.UserReviewsExtended = append(e.UserReviewsExtended, reviews...)
+		p, err := parseRPCPage(page)
+		if err != nil {
+			log.Printf("DEBUG: rpc page not added: %v (data len: %d)", err, len(page))
+			continue
 		}
+		set.addPage(p)
 	}
+
+	e.SetExtendedReviews(set.extended())
 }
 
+// SetExtendedReviews replaces the reviews collected beyond `UserReviews`.
+func (e *Entry) SetExtendedReviews(rows []Review) {
+	e.UserReviewsExtended = rows
+}
+
+// extractReviews reads one RPC page the way `AddExtraReviews` used to before it went through
+// `reviewSet` -- kept for the one test that pins the raw page-to-reviews mapping directly. New
+// code parses a page with `parseRPCPage` instead, which is what this now calls.
 func extractReviews(data []byte) []Review {
-	// Skip the security prefix
-	prefix := ")]}'\n"
-	if len(data) >= len(prefix) && string(data[:len(prefix)]) == prefix {
-		data = data[len(prefix):]
-	} else if len(data) >= 4 && string(data[0:4]) == `)]}'` {
-		data = data[4:]
-	}
-
-	var jd []any
-	if err := json.Unmarshal(data, &jd); err != nil {
-		log.Printf("DEBUG: Error unmarshalling RPC JSON: %v (data len: %d)", err, len(data))
+	p, err := parseRPCPage(data)
+	if err != nil {
 		return nil
 	}
 
-	if len(jd) < 3 {
-		log.Printf("DEBUG: RPC response has only %d elements, expected 3+", len(jd))
-		return nil
-	}
-
-	reviewsI := getNthElementAndCast[[]any](jd, 2)
-	if len(reviewsI) == 0 {
-		// Try alternative indices - Google may have changed the structure
-		reviewsI = getNthElementAndCast[[]any](jd, 0)
-	}
-
-	return parseReviews(reviewsI)
+	return p.Reviews
 }
 
 //nolint:gomnd // it's ok, I need the indexes

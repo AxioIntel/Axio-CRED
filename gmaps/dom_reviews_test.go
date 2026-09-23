@@ -64,37 +64,3 @@ func Test_ConvertDOMReviewsToReviews(t *testing.T) {
 	assert.Equal(t, "3 months ago", got[0].When)
 }
 
-func Test_dedupeDOMReviewsAgainstPrimary(t *testing.T) {
-	tests := []struct {
-		name    string
-		primary []Review
-		dom     []Review
-		want    []Review
-	}{
-		{
-			"matching id dropped",
-			[]Review{{ReviewID: "id-1"}, {ReviewID: "id-2"}},
-			[]Review{{ReviewID: "id-1"}, {ReviewID: "id-3"}},
-			[]Review{{ReviewID: "id-3"}},
-		},
-		{
-			"unmatched ids kept",
-			[]Review{{ReviewID: "id-1"}},
-			[]Review{{ReviewID: "id-2"}, {ReviewID: "id-3"}},
-			[]Review{{ReviewID: "id-2"}, {ReviewID: "id-3"}},
-		},
-		{
-			"empty ids never match",
-			[]Review{{ReviewID: ""}, {ReviewID: "id-1"}},
-			[]Review{{ReviewID: ""}, {ReviewID: ""}},
-			[]Review{{ReviewID: ""}, {ReviewID: ""}},
-		},
-	}
-
-	for i := range tests {
-		tt := tests[i]
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, dedupeDOMReviewsAgainstPrimary(tt.primary, tt.dom))
-		})
-	}
-}

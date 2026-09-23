@@ -109,26 +109,39 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		entry.Link = j.GetURL()
 	}
 
-	// Handle RPC-based reviews
+	// Handle RPC-based reviews: each page deduped by id against the others and against the
+	// inline reviews above (`AddExtraReviews`, `reviewSet`).
 	allReviewsRaw, ok := resp.Meta["reviews_raw"].(FetchReviewsResponse)
 	if ok && len(allReviewsRaw.pages) > 0 {
 		entry.AddExtraReviews(allReviewsRaw.pages)
 	}
 
-	// Handle DOM-based reviews (fallback)
+	// Handle DOM-based reviews (fallback). One set, seeded with the inline reviews and what RPC
+	// already found, so a DOM row that duplicates either enriches it instead of being counted or
+	// stored twice -- the two-pass `dedupeDOMReviewsAgainstPrimary` calls this replaced did the
+	// same thing by running consecutively; this does it in one pass.
 	domReviews, ok := resp.Meta["dom_reviews"].([]DOMReview)
 	if ok && len(domReviews) > 0 {
-		convertedReviews := ConvertDOMReviewsToReviews(domReviews)
+		converted := ConvertDOMReviewsToReviews(domReviews)
 
-		deduped := dedupeDOMReviewsAgainstPrimary(entry.UserReviews, convertedReviews)
-		deduped = dedupeDOMReviewsAgainstPrimary(entry.UserReviewsExtended, deduped)
-
-		if len(deduped) != len(convertedReviews) {
-			log.Printf("DOM reviews: dropped %d of %d already present in user_reviews",
-				len(convertedReviews)-len(deduped), len(convertedReviews))
+		set := newReviewSet(entry.UserReviews, defaultReviewCap)
+		for _, r := range entry.UserReviewsExtended {
+			set.add(r)
 		}
 
-		entry.UserReviewsExtended = append(entry.UserReviewsExtended, deduped...)
+		added := 0
+		for _, r := range converted {
+			if set.add(r) {
+				added++
+			}
+		}
+
+		if dropped := len(converted) - added; dropped > 0 {
+			log.Printf("DOM reviews: dropped %d of %d already present in user_reviews",
+				dropped, len(converted))
+		}
+
+		entry.SetExtendedReviews(set.extended())
 	}
 
 	if j.ExtractEmail && entry.IsWebsiteValidForEmail() {

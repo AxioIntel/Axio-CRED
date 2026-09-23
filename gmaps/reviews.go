@@ -36,27 +36,45 @@ type FetchReviewsResponse struct {
 type fetcher struct {
 	httpClient scrapemate.HTTPFetcher
 	params     fetchReviewsParams
+	cap        int
 }
 
-func newReviewFetcher(params fetchReviewsParams) *fetcher {
+func newReviewFetcher(params fetchReviewsParams, cap int) *fetcher {
+	if cap <= 0 {
+		cap = defaultReviewCap
+	}
 	netClient := stealth.New("firefox", nil)
 	ans := fetcher{
 		params:     params,
 		httpClient: netClient,
+		cap:        cap,
 	}
 
 	return &ans
 }
 
-// reviewPageBudget accommodates reported totals over 1,000, with a safety ceiling.
-func reviewPageBudget(count int) int {
+// reviewPageBudget is how many pages of 20 a pagination loop may take for a place reporting
+// `count` reviews, so a large or drifting count is not silently truncated at a fixed page total.
+// `cap` bounds it -- `cap/20` pages is the most that could ever be kept -- and `count <= 0`
+// (unknown) gets that same ceiling rather than a guess. `+2` pages of headroom plus roughly 5% of
+// slack, at least one page, absorb a count that moved between the listing read and the pull.
+func reviewPageBudget(count, cap int) int {
+	ceiling := cap / 20
+	if ceiling < 1 {
+		ceiling = 1
+	}
 	if count <= 0 {
-		return 100
+		return ceiling
 	}
 
-	pages := (count+19)/20 + 2
-	if pages > 250 {
-		return 250
+	pages := (count+19)/20
+	slack := pages / 20
+	if slack < 1 {
+		slack = 1
+	}
+	pages += 2 + slack
+	if pages > ceiling {
+		return ceiling
 	}
 
 	return pages
@@ -96,7 +114,7 @@ func (f *fetcher) fetch(ctx context.Context) (FetchReviewsResponse, error) {
 	nextPageToken := extractNextPageToken(currentPageBody)
 
 	seenTokens := map[string]bool{}
-	for nextPageToken != "" && len(ans.pages) < reviewPageBudget(f.params.reviewCount) {
+	for nextPageToken != "" && len(ans.pages) < reviewPageBudget(f.params.reviewCount, f.cap) {
 		if ctx.Err() != nil || seenTokens[nextPageToken] {
 			break
 		}
@@ -173,7 +191,7 @@ func (f *fetcher) fetchWithBrowser(ctx context.Context, initialURL, requestID st
 	nextPageToken := extractNextPageToken([]byte(data))
 	seenTokens := map[string]bool{}
 
-	for nextPageToken != "" && len(ans.pages) < reviewPageBudget(f.params.reviewCount) {
+	for nextPageToken != "" && len(ans.pages) < reviewPageBudget(f.params.reviewCount, f.cap) {
 		if ctx.Err() != nil || seenTokens[nextPageToken] {
 			break
 		}
@@ -373,7 +391,11 @@ type DOMReview struct {
 
 // mergeDOMReviews indexes identities once instead of comparing every loaded card
 // with every prior card on each scroll. Distinct IDs always remain distinct.
-func mergeDOMReviews(reviews, incoming []DOMReview, index map[string]int) []DOMReview {
+func mergeDOMReviews(reviews, incoming []DOMReview, index map[string]int, cap int) []DOMReview {
+	if cap <= 0 {
+		cap = defaultReviewCap
+	}
+
 	for position := range incoming {
 		next := &incoming[position]
 
@@ -408,7 +430,7 @@ func mergeDOMReviews(reviews, incoming []DOMReview, index map[string]int) []DOMR
 			continue
 		}
 
-		if len(reviews) >= 5000 {
+		if len(reviews) >= cap {
 			break
 		}
 
@@ -448,64 +470,6 @@ func ConvertDOMReviewsToReviews(domReviews []DOMReview) []Review {
 	}
 
 	return reviews
-}
-
-// dedupeDOMReviewsAgainstPrimary enriches primary records before dropping a DOM
-// duplicate. Matching is by review id only; an empty id is never a duplicate.
-func dedupeDOMReviewsAgainstPrimary(primary, domReviews []Review) []Review {
-	seen := make(map[string]int, len(primary))
-
-	for i := range primary {
-		if primary[i].ReviewID != "" {
-			seen[primary[i].ReviewID] = i
-		}
-	}
-
-	if len(seen) == 0 {
-		return domReviews
-	}
-
-	kept := make([]Review, 0, len(domReviews))
-	withID := 0
-
-	for i := range domReviews {
-		if domReviews[i].ReviewID != "" {
-			withID++
-
-			if j, dup := seen[domReviews[i].ReviewID]; dup {
-				old, next := &primary[j], &domReviews[i]
-				if len(next.Description) > len(old.Description) {
-					old.Description = next.Description
-				}
-
-				if old.AuthorURL == "" {
-					old.AuthorURL = next.AuthorURL
-				}
-
-				if old.ReplyText == "" {
-					old.ReplyText = next.ReplyText
-				}
-
-				if old.PublishedAt == nil {
-					old.PublishedAt = next.PublishedAt
-				}
-
-				if len(next.Images) > len(old.Images) {
-					old.Images = next.Images
-				}
-
-				continue
-			}
-		}
-
-		kept = append(kept, domReviews[i])
-	}
-
-	if withID > 0 && len(kept) == len(domReviews) {
-		log.Printf("DOM review ids matched none of %d primary ids", len(seen))
-	}
-
-	return kept
 }
 
 func decodeDOMReviews(raw []any) []DOMReview {
@@ -577,10 +541,42 @@ func decodeDOMReviews(raw []any) []DOMReview {
 	return decoded
 }
 
-// extractReviewsFromPage extracts reviews directly from the page DOM
-// This is a fallback when the RPC API fails
-func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, expectedCount int) []DOMReview {
+// Why a pass through the DOM scroll loop stops.
+const (
+	domStopCap    = "cap"
+	domStopTarget = "target"
+	domStopStuck  = "stuck"
+)
+
+// domShouldStop is the scroll loop's stop decision, pulled out as a pure function so it is
+// tested without a browser. `domCount` is this pass's own accumulated DOM count; `cap` the
+// safety ceiling; `unionCount` is what DOM plus everything already known holds (typically
+// `known.distinct() + netNewAgainst(known, reviews)`); `target` is the place's reported count, 0
+// when unknown; `stuckPasses` is how many consecutive passes found nothing new.
+func domShouldStop(domCount, cap, unionCount, target, stuckPasses, stuckLimit int) (bool, string) {
+	if domCount >= cap {
+		return true, domStopCap
+	}
+	if target > 0 && unionCount >= target {
+		return true, domStopTarget
+	}
+	if stuckPasses >= stuckLimit {
+		return true, domStopStuck
+	}
+	return false, ""
+}
+
+// extractReviewsFromPage scrolls the public review panel until it, together with whatever `known`
+// already holds (typically the RPC pages a caller already fetched), reaches `target` -- not until
+// its own count alone does, which used to mean re-scrolling past reviews RPC already had. `known`
+// may be nil (nothing known yet); an id-less DOM review is never counted as one `known` has, the
+// same rule the rest of this codebase uses for an id-less review.
+func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, known *reviewSet,
+	target, cap int) []DOMReview {
 	log.Printf("Attempting DOM-based review extraction")
+	if cap <= 0 {
+		cap = defaultReviewCap
+	}
 
 	// First, try to click the reviews section to open the reviews panel
 	clickedReviews, _ := page.Eval(`() => {
@@ -661,6 +657,7 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ex
 	deadline := time.Now().Add(15 * time.Minute)
 	reviewIndex := make(map[string]int)
 	maxScrollAttempts := 1200
+	maxStuckPasses := 15
 	lastCount := 0
 	stuckCount := 0
 
@@ -685,29 +682,27 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ex
 			if ok {
 				decoded := decodeDOMReviews(rawReviews)
 
-				reviews = mergeDOMReviews(reviews, decoded, reviewIndex)
+				reviews = mergeDOMReviews(reviews, decoded, reviewIndex, cap)
 			}
 		}
 
 		currentCount := len(reviews)
-		if currentCount >= 5000 {
-			log.Printf("Review safety limit reached at %d reviews", currentCount)
-			break
-		}
-
-		if expectedCount > 0 && currentCount >= expectedCount {
-			break
-		}
-
 		if currentCount == lastCount {
 			stuckCount++
-			if stuckCount >= 15 {
-				log.Printf("Review count stuck at %d, stopping scroll", currentCount)
-				break
-			}
 		} else {
 			stuckCount = 0
 			lastCount = currentCount
+		}
+
+		if stop, reason := domShouldStop(currentCount, cap,
+			known.distinct()+netNewAgainst(known, reviews), target, stuckCount, maxStuckPasses); stop {
+			switch reason {
+			case domStopCap:
+				log.Printf("Review safety limit reached at %d reviews", currentCount)
+			case domStopStuck:
+				log.Printf("Review count stuck at %d, stopping scroll", currentCount)
+			}
+			break
 		}
 
 		// Scroll the review's actual scrollable ancestor, not a layout sibling.
@@ -736,36 +731,63 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, ex
 	return reviews
 }
 
-// FetchReviewsWithFallback attempts RPC-based extraction first, then falls back to DOM
-func shouldSupplementRPC(collected, reported int) bool {
-	return collected == 0 || (reported > collected && collected < 5000)
+// needsMoreReviews is whether RPC's own count is worth supplementing from the public page: it
+// found nothing, or the place reports more than it found and there is still room under `cap`.
+// `cap` replaces the number this used to have baked in, so a caller can raise it without editing
+// this function.
+func needsMoreReviews(have, reported, cap int) bool {
+	if cap <= 0 {
+		cap = defaultReviewCap
+	}
+	return have == 0 || (reported > have && have < cap)
 }
 
+// netNewAgainst counts how many of these DOM reviews are not already known. An id-less review is
+// never counted as one `known` has -- there is nothing to compare it by.
+func netNewAgainst(known *reviewSet, reviews []DOMReview) int {
+	n := 0
+	for i := range reviews {
+		if id := reviews[i].ReviewID; id != "" && !known.has(id) {
+			n++
+		}
+	}
+	return n
+}
+
+// FetchReviewsWithFallback attempts RPC-based extraction first, then falls back to DOM. RPC's own
+// pages are deduped by id before being judged against the reported count (`reviewSet`, not a raw
+// sum across pages, which double-counted a review two pages happened to both carry) and, when DOM
+// runs, it is told what RPC already found so it does not re-scroll past those to reach the target.
 func FetchReviewsWithFallback(ctx context.Context, params fetchReviewsParams) (FetchReviewsResponse, []DOMReview, error) {
-	fetcher := newReviewFetcher(params)
+	cap := defaultReviewCap
+	fetcher := newReviewFetcher(params, cap)
 
 	// Try RPC-based extraction first
 	rpcResponse, err := fetcher.fetch(ctx)
-	if err == nil && len(rpcResponse.pages) > 0 {
-		// Validate that we actually got reviews
-		totalReviews := 0
-
+	found := newReviewSet(nil, cap)
+	if err == nil {
 		for _, page := range rpcResponse.pages {
-			reviews := extractReviews(page)
-			totalReviews += len(reviews)
+			p, perr := parseRPCPage(page)
+			if perr != nil {
+				log.Printf("DEBUG: rpc page not counted: %v (data len: %d)", perr, len(page))
+				continue
+			}
+			found.addPage(p)
 		}
+	}
 
-		if !shouldSupplementRPC(totalReviews, params.reviewCount) {
-			log.Printf("RPC extraction successful: %d review pages, ~%d reviews", len(rpcResponse.pages), totalReviews)
+	if len(rpcResponse.pages) > 0 {
+		if !needsMoreReviews(found.len(), params.reviewCount, cap) {
+			log.Printf("RPC extraction successful: %d review pages, %d reviews", len(rpcResponse.pages), found.len())
 			return rpcResponse, nil, nil
 		}
 
-		log.Printf("RPC coverage incomplete: %d of %d reported reviews; supplementing from public page", totalReviews, params.reviewCount)
+		log.Printf("RPC coverage incomplete: %d of %d reported reviews; supplementing from public page", found.len(), params.reviewCount)
 	}
 
 	// Fallback to DOM-based extraction
 	if params.page != nil {
-		domReviews := extractReviewsFromPage(ctx, params.page, params.reviewCount)
+		domReviews := extractReviewsFromPage(ctx, params.page, found, params.reviewCount, cap)
 		if len(domReviews) > 0 {
 			log.Printf("DOM extraction successful: %d reviews", len(domReviews))
 			return rpcResponse, domReviews, nil
