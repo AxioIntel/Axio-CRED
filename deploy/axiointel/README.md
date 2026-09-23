@@ -1,10 +1,14 @@
 # Collecting for AxioIntel
 
 This folder runs Axio-CRED's collector on a schedule and sends what it collects to AxioIntel.
-For each place in `places.txt`, `collect.sh` opens the public Google Maps listing with the
-collector, using the same arguments Axio-CRED's app uses for an exact Place ID, including
-`-extra-reviews`. It then hands the results to `push_native.py`, AxioIntel's sender, which
-signs them and posts them to `https://axiointel.com/api/ingest/native`.
+`collect.sh` first asks AxioIntel which places to collect, with `fetch_targets.py`; then, for
+each place, it opens the public Google Maps listing with the collector, using the same arguments
+Axio-CRED's app uses for an exact Place ID, including `-extra-reviews`. It hands the results to
+`push_native.py`, AxioIntel's sender, which signs them and posts them to
+`https://axiointel.com/api/ingest/native`.
+
+Asking is a read. AxioIntel never runs, schedules or calls this collector: it answers with a
+list, and this machine decides on its own clock what to do with it.
 
 Nothing here reports, flags or appeals a review. The collector reads public pages. AxioIntel
 stores what arrives and never treats it as proof that anyone owns a place.
@@ -33,12 +37,16 @@ A small Linux VM is enough, collecting one place at a time: Ubuntu 24.04, 2 vCPU
    sudo docker build -t axio-cred-collector .
    ```
 
-3. **Fetch AxioIntel's sender** into this folder. It is not copied into this repository, so it
-   cannot drift from the endpoint it talks to. Axio-Backend's tests hold it to that contract.
+3. **Fetch AxioIntel's own programs** into this folder: the sender, and the one that asks what
+   to collect. Neither is copied into this repository, so neither can drift from the endpoint it
+   talks to. Axio-Backend's tests hold both to that contract.
    ```bash
-   gh api -H "Accept: application/vnd.github.raw" repos/AxioIntel/Axio-Backend/contents/scripts/push_native.py > deploy/axiointel/push_native.py
+   for f in push_native.py fetch_targets.py; do
+     gh api -H "Accept: application/vnd.github.raw" \
+       "repos/AxioIntel/Axio-Backend/contents/scripts/$f" > "deploy/axiointel/$f"
+   done
    ```
-   Fetch it again whenever Axio-Backend changes it.
+   Fetch them again whenever Axio-Backend changes them.
 
 4. **Give it the shared secret.** Read the value in Cloud Shell with
    `gcloud secrets versions access latest --secret native-ingest-secret --project axiointel`.
@@ -50,20 +58,31 @@ A small Linux VM is enough, collecting one place at a time: Ubuntu 24.04, 2 vCPU
    Never commit it, never paste it into a chat, and rotate it (a new secret version, then this
    file) if it has been anywhere else.
 
-5. **List the places** to collect, one place ID per line, optionally followed by `owned` or
-   `competitor`.
+5. **Run it once against staging**, and watch the first place come through before production
+   ever sees this machine. `AXIOINTEL_BASE_URL` moves both the question and the answer to
+   another deployment. It is the API's base, ending in `/api` for the site and without it for
+   the Cloud Run service, which answers either way.
+   ```bash
+   sudo AXIOINTEL_BASE_URL=<staging base URL> deploy/axiointel/collect.sh
+   ```
+   Staging needs its own `native-ingest-secret`, and `collector.env` must hold that one while
+   this run is pointed at it. `collect.sh` asks that deployment what it is watching, collects
+   the first place on the list, and posts it back. A profile appears there under `native/<place id>`. A place with a few
+   hundred reviews takes several minutes; the collector's budget is 20 minutes per place. How
+   long each place took is sent with it, and AxioIntel's **Pull speed** screen sets it beside
+   pulls of the same place made from the dashboard.
+
+   To collect a list of your own instead of asking -- to try one particular place, or while a
+   deployment has no targets endpoint yet -- name it:
    ```bash
    cp deploy/axiointel/places.example.txt deploy/axiointel/places.txt
+   sudo COLLECTOR_PLACES_FILE=deploy/axiointel/places.txt deploy/axiointel/collect.sh
    ```
 
-6. **Run it once by hand**, and watch the first place come through.
+6. **Run it once against production**, the same way without `AXIOINTEL_BASE_URL`.
    ```bash
    sudo deploy/axiointel/collect.sh
    ```
-   A profile appears in AxioIntel under `native/<place id>`. A place with a few hundred reviews
-   takes several minutes; the collector's budget is 20 minutes per place. How long each place
-   took is sent with it, and AxioIntel's **Pull speed** screen sets it beside pulls of the same
-   place made from the dashboard.
 
 7. **Schedule it.** Once a day is plenty for most places.
    ```bash
@@ -75,6 +94,18 @@ A small Linux VM is enough, collecting one place at a time: Ubuntu 24.04, 2 vCPU
 Google rate-limits a single datacenter IP address that loads many listings. Put one proxy URL
 per line in a root-owned file and set `COLLECTOR_PROXIES_FILE=/etc/axiointel/proxies.txt` in
 `collector.env`. The log is scrubbed of proxy credentials after every run.
+
+## What it collects
+
+`collect.sh` asks AxioIntel, every run, which places it is watching: every public place a
+workspace watches or the house still holds, once each however many sources have read it, with
+the one that has waited longest first. A list edited by hand here would go stale the moment a
+workspace watched something new, so there is none to keep up to date.
+
+The question is signed with the same secret as a push, so the collector carries one credential.
+If AxioIntel answers `401` the secret here is not the one it holds, or this machine's clock is
+more than five minutes out; if it answers `503`, that deployment has no secret configured. Both
+are printed in full and the run stops without collecting.
 
 ## What it keeps
 
