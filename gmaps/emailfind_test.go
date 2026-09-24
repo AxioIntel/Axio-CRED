@@ -139,6 +139,7 @@ func TestFindBusinessEmailsCollectsEveryAddressFromTheSite(t *testing.T) {
 
 	fetch := func(_ context.Context, u string) ([]byte, error) {
 		asked = append(asked, u)
+
 		if body, ok := pages[u]; ok {
 			return []byte(body), nil
 		}
@@ -162,6 +163,7 @@ func TestFindBusinessEmailsTriesTheUsualContactPagesWhenNoneAreLinked(t *testing
 
 	fetch := func(_ context.Context, u string) ([]byte, error) {
 		asked = append(asked, u)
+
 		if u == "https://smiledental.com/contact" {
 			return []byte(`hello@smiledental.com`), nil
 		}
