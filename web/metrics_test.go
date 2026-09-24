@@ -185,6 +185,7 @@ func TestARunThatStartsOverIsNotANegativeRate(t *testing.T) {
 	srv.jobProgress(&job, t0.Add(10*time.Second))
 
 	require.NoError(t, os.WriteFile(path, []byte(rowsCSV(65)), 0o600))
+
 	p := srv.jobProgress(&job, t0.Add(70*time.Second))
 
 	assert.InDelta(t, 60, p.RatePerMin, 0.01, "measured from the restart, not the old run")
