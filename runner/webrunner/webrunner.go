@@ -34,6 +34,12 @@ type webrunner struct {
 	setupMate func(context.Context, io.Writer, *web.Job) (mateRunner, error)
 }
 
+// browserUA is what the dashboard's browser says it is: the Chromium the image actually runs
+// (playwright chromium v1228 = Chrome 149, on Linux). Without it scrapemate presents a hard-coded
+// Chrome 91 from 2021, a years-old browser on a current engine, which is its own reason for a site
+// to distrust the visit. Update it with the image's Chromium.
+const browserUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+
 type mateRunner interface {
 	Start(context.Context, ...scrapemate.IJob) error
 	Close() error
@@ -382,7 +388,7 @@ func defaultSetupMate(cfg *runner.Config) func(context.Context, io.Writer, *web.
 
 		if !job.Data.FastMode {
 			opts = append(opts,
-				scrapemateapp.WithJS(scrapemateapp.DisableImages()),
+				scrapemateapp.WithJS(scrapemateapp.DisableImages(), scrapemateapp.WithUA(browserUA)),
 			)
 		} else {
 			opts = append(opts,
