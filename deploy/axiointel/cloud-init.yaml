@@ -45,7 +45,7 @@ runcmd:
   - install -d -m 700 -o collector -g collector /home/collector/.ssh
   - install -m 600 -o collector -g collector /root/.ssh/authorized_keys /home/collector/.ssh/authorized_keys
   - systemctl enable --now docker
-  - install -d -m 750 /etc/axiointel
+  - install -d -m 750 -g docker /etc/axiointel
   - install -d -m 755 -o collector -g collector /var/lib/axiointel-collector
   - git clone https://github.com/AxioIntel/Axio-CRED.git /opt/axio-cred
   - chown -R collector:collector /opt/axio-cred
