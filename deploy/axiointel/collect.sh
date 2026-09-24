@@ -70,7 +70,10 @@ flock -n 9 || { echo "a collection is already running; skipping this one"; exit 
 # collection that is still written out, rather than a killed container that wrote nothing. Only an
 # image built with the review collector knows the flag; an older one is run as before.
 REVIEW_FLAGS=()
-if docker run --rm "$IMAGE" -h 2>&1 | grep -q -- -review-budget; then
+# Read the whole help first: under pipefail, `docker run | grep -q` fails whenever grep's early
+# exit cuts docker off mid-write, and the flag would silently never be passed.
+image_help=$(docker run --rm "$IMAGE" -h 2>&1 || true)
+if grep -q -- -review-budget <<<"$image_help"; then
   if [ "$TIMEOUT" -gt 300 ]; then
     REVIEW_FLAGS=(-review-budget "$((TIMEOUT - 240))s")
   else
@@ -182,7 +185,7 @@ PY
 )
   read -r cov_state cov_collected cov_reported cov_reason cov_stage cov_rotations cov_blocks \
     <<<"$coverage"
-  if [ "$cov_state" = "missing" ]; then
+  if [ "$cov_state" = "missing" ] || [ -z "$cov_state" ]; then
     echo "$(date -u +%FT%TZ) $place: no coverage report (an image built before the review collector)"
   else
     echo "$(date -u +%FT%TZ) $place: $cov_collected/$cov_reported reviews, $cov_state" \

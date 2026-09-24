@@ -165,6 +165,24 @@ func TestABlockPageServedWith200AlsoRotates(t *testing.T) {
 	assert.Equal(t, 1, report.IdentityRotations)
 }
 
+func TestAnIdentityThatCannotBeReachedIsGivenUp(t *testing.T) {
+	// A dead proxy is not Google refusing anything, but retrying it forever would end the stage
+	// with every other identity unused.
+	dead := errors.New("proxyconnect tcp: dial tcp a.proxy.example:8001: connection refused")
+	tr := &fakeTransport{steps: map[string]map[string][]step{
+		proxyA: {"tok:": {{err: dead}}},
+		proxyB: {"tok:": {{resp: page(t, "", "r1")}}},
+	}}
+	c, slept, _ := collector(ReviewConfig{}, nil, identityRoute(t, tr, proxyBrowser, proxyA, proxyB), nil)
+
+	report := settle(c.run(context.Background(), 1), nil)
+
+	assert.Equal(t, stopDone, report.StopReason)
+	assert.Equal(t, 1, report.IdentityRotations)
+	assert.Equal(t, 0, report.Blocks, "an unreachable proxy is not a refusal")
+	assert.Equal(t, []time.Duration{2 * time.Second, 4 * time.Second}, *slept, "retried before given up")
+}
+
 func TestWhenEveryIdentityIsRefusedTheDOMGetsWhatIsLeft(t *testing.T) {
 	tr := &fakeTransport{steps: map[string]map[string][]step{
 		proxyA:       {"tok:": {{resp: page(t, "t2", "r1")}}, "tok:t2": {{resp: rpcResponse{Status: 429}}}},

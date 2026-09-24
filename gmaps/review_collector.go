@@ -405,6 +405,15 @@ func (c *reviewCollector) fetchOnePage(ctx context.Context, deadline time.Time, 
 		}
 
 		if attempt >= transientRetries {
+			// An identity that keeps failing -- a dead proxy, most often -- is given up like a
+			// refused one, so one bad line in the proxy list does not end the stage.
+			if rf, ok := f.(rotatingFetcher); ok && rf.rotate() {
+				report.IdentityRotations++
+				rotated, attempt = true, 0
+
+				continue
+			}
+
 			return rpcPage{}, stageOutcome{reason: stopError, detail: detail}, false
 		}
 
