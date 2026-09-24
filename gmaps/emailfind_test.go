@@ -1,0 +1,186 @@
+//nolint:testpackage // tests the email finder's unexported internals
+package gmaps
+
+import (
+	"context"
+	"errors"
+	"net/url"
+	"strings"
+	"testing"
+
+	"github.com/PuerkitoBio/goquery"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func pageDoc(t *testing.T, html string) *goquery.Document {
+	t.Helper()
+
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	require.NoError(t, err)
+
+	return doc
+}
+
+// cfSmile is "info@smiledental.com" as Cloudflare's email protection writes it (key 0x42).
+const cfSmile = "422b2c242d02312f2b2e2726272c36232e6c212d2f"
+
+func TestUsableEmailKeepsRealAddressesAndDropsJunk(t *testing.T) {
+	for raw, want := range map[string]string{
+		"Info@SmileDental.com":                                   "info@smiledental.com",
+		"mailto:hello@clinic.co.uk?subject=Hi":                   "hello@clinic.co.uk",
+		"front%2Edesk@clinic.com":                                "front.desk@clinic.com",
+		"reception@clinic.com.":                                  "reception@clinic.com",
+		"logo@2x.png":                                            "",
+		"hero-image@3x.webp":                                     "",
+		"you@example.com":                                        "",
+		"info@yourdomain.com":                                    "",
+		"8f3a9c2b7d6e4f1a0b5c8d7e6f9a0b1c@sentry.io":             "",
+		"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6@o1.ingest.sentry.io.x": "",
+		"name@clinic.com":                                        "",
+		"no-at-sign.com":                                         "",
+		"two@@clinic.com":                                        "",
+	} {
+		got, ok := usableEmail(raw)
+		if want == "" {
+			assert.False(t, ok, "%q should be dropped, got %q", raw, got)
+
+			continue
+		}
+
+		assert.True(t, ok, raw)
+		assert.Equal(t, want, got, raw)
+	}
+}
+
+func TestDecodeCloudflareEmail(t *testing.T) {
+	got, err := decodeCloudflareEmail(cfSmile)
+	require.NoError(t, err)
+	assert.Equal(t, "info@smiledental.com", got)
+
+	_, err = decodeCloudflareEmail("zz")
+	assert.Error(t, err)
+}
+
+func TestEmailsOnPageFindsEveryForm(t *testing.T) {
+	html := `<html><body>
+		<a href="mailto:frontdesk@smiledental.com,billing@smiledental.com?subject=Appointment">Email us</a>
+		<a href="/cdn-cgi/l/email-protection#` + cfSmile + `">[email&#160;protected]</a>
+		<span class="__cf_email__" data-cfemail="` + cfSmile + `">[email protected]</span>
+		<p>Or write to dr.patel@gmail.com</p>
+		<img src="/img/logo@2x.png">
+	</body></html>`
+
+	got := emailsOnPage(pageDoc(t, html), []byte(html))
+
+	assert.Subset(t, got, []string{
+		"frontdesk@smiledental.com", "billing@smiledental.com", "info@smiledental.com", "dr.patel@gmail.com",
+	})
+	assert.NotContains(t, got, "logo@2x.png")
+}
+
+func TestRankEmailsPutsTheBusinessDomainFirstAndDedupes(t *testing.T) {
+	got := rankEmails([]string{
+		"dr.patel@gmail.com", "info@smiledental.com", "dr.patel@gmail.com", "team@mail.smiledental.com",
+	}, "www.smiledental.com")
+
+	assert.Equal(t, []string{"info@smiledental.com", "team@mail.smiledental.com", "dr.patel@gmail.com"}, got)
+}
+
+func TestRankEmailsCapsADirectoryPage(t *testing.T) {
+	many := make([]string, 0, 40)
+	for i := range 40 {
+		many = append(many, "person"+string(rune('a'+i%26))+strings.Repeat("x", i/26)+"@clinic.com")
+	}
+
+	assert.Len(t, rankEmails(many, "clinic.com"), maxEmailsPerBusiness)
+}
+
+func TestRegistrableHost(t *testing.T) {
+	for in, want := range map[string]string{
+		"www.smiledental.com":     "smiledental.com",
+		"booking.smiledental.com": "smiledental.com",
+		"www.clinic.co.uk":        "clinic.co.uk",
+		"clinic.de":               "clinic.de",
+		"SmileDental.com:443":     "smiledental.com",
+	} {
+		assert.Equal(t, want, registrableHost(in), in)
+	}
+}
+
+func TestContactPageLinksStayOnTheSiteAndRankContactFirst(t *testing.T) {
+	html := `<html><body>
+		<a href="/about-us">About</a>
+		<a href="https://www.smiledental.com/contact">Contact</a>
+		<a href="https://facebook.com/smiledental/contact">Facebook</a>
+		<a href="/brochure.pdf">Contact brochure</a>
+		<a href="/services">Services</a>
+		<a href="/contact#form">Contact form</a>
+		<a href="mailto:x@smiledental.com">mail</a>
+	</body></html>`
+	base := mustURL(t, "https://www.smiledental.com/")
+
+	got := contactPageLinks(pageDoc(t, html), base)
+
+	assert.Equal(t, []string{"https://www.smiledental.com/contact", "https://www.smiledental.com/about-us"}, got)
+}
+
+func TestFindBusinessEmailsReadsTheContactPageOnlyWhenNeeded(t *testing.T) {
+	home := `<html><body><a href="/contact-us">Contact</a><p>Web design by studio@agency.io</p></body></html>`
+	contact := `<html><body><a href="mailto:hello@smiledental.com">hello@smiledental.com</a></body></html>`
+
+	var asked []string
+
+	fetch := func(_ context.Context, u string) ([]byte, error) {
+		asked = append(asked, u)
+
+		if strings.HasSuffix(u, "/contact-us") {
+			return []byte(contact), nil
+		}
+
+		return nil, errors.New("not found")
+	}
+
+	got := findBusinessEmails(context.Background(), "https://smiledental.com/", pageDoc(t, home), []byte(home), fetch)
+
+	assert.Equal(t, []string{"hello@smiledental.com", "studio@agency.io"}, got)
+	assert.Equal(t, []string{"https://smiledental.com/contact-us"}, asked)
+
+	asked = nil
+	ownOnHome := `<html><body><a href="/contact">Contact</a> info@smiledental.com</body></html>`
+	got = findBusinessEmails(context.Background(), "https://smiledental.com/", pageDoc(t, ownOnHome), []byte(ownOnHome), fetch)
+
+	assert.Equal(t, []string{"info@smiledental.com"}, got)
+	assert.Empty(t, asked, "the front page had the business's own address; no other page is read")
+}
+
+func TestFindBusinessEmailsSurvivesAContactPageThatFails(t *testing.T) {
+	home := `<html><body><a href="/contact">Contact</a></body></html>`
+	fetch := func(context.Context, string) ([]byte, error) { return nil, errors.New("timeout") }
+
+	got := findBusinessEmails(context.Background(), "https://smiledental.com/", pageDoc(t, home), []byte(home), fetch)
+
+	assert.Empty(t, got)
+}
+
+func TestSocialProfilesAreNotSearchedForEmails(t *testing.T) {
+	for site, want := range map[string]bool{
+		"https://www.smiledental.com":           true,
+		"https://www.instagram.com/smiledental": false,
+		"https://facebook.com/smiledental":      false,
+		"https://linktr.ee/smiledental":         false,
+		"":                                      false,
+	} {
+		e := &Entry{WebSite: site}
+		assert.Equal(t, want, e.IsWebsiteValidForEmail(), site)
+	}
+}
+
+func mustURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+
+	u, err := url.Parse(raw)
+	require.NoError(t, err)
+
+	return u
+}

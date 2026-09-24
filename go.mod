@@ -21,7 +21,6 @@ require (
 	github.com/hetznercloud/hcloud-go/v2 v2.36.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/mattn/go-runewidth v0.0.16
-	github.com/mcnijman/go-emailaddress v1.1.1
 	github.com/mxschmitt/playwright-go v0.6100.0
 	github.com/posthog/posthog-go v1.5.2
 	github.com/pquerna/otp v1.5.0

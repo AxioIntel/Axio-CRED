@@ -8,7 +8,6 @@ import (
 	"github.com/PuerkitoBio/goquery"
 	"github.com/google/uuid"
 	"github.com/gosom/scrapemate"
-	"github.com/mcnijman/go-emailaddress"
 
 	"github.com/AxioIntel/Axio-CRED/exiter"
 )
@@ -21,6 +20,9 @@ type EmailExtractJob struct {
 	Entry                   *Entry
 	ExitMonitor             exiter.Exiter
 	WriterManagedCompletion bool
+
+	// fetchPage reads the business's contact-like pages; nil is fetchSitePage. Set by tests.
+	fetchPage pageFetcher
 }
 
 func NewEmailJob(parentID string, entry *Entry, opts ...EmailExtractJobOptions) *EmailExtractJob {
@@ -87,10 +89,12 @@ func (j *EmailExtractJob) Process(ctx context.Context, resp *scrapemate.Response
 		return j.Entry, nil, nil
 	}
 
-	emails := docEmailExtractor(doc)
-	if len(emails) == 0 {
-		emails = regexEmailExtractor(resp.Body)
+	fetch := j.fetchPage
+	if fetch == nil {
+		fetch = fetchSitePage
 	}
+
+	emails := findBusinessEmails(ctx, j.URL, doc, resp.Body, fetch)
 
 	j.Entry.Emails = emails
 
@@ -99,52 +103,6 @@ func (j *EmailExtractJob) Process(ctx context.Context, resp *scrapemate.Response
 
 func (j *EmailExtractJob) ProcessOnFetchError() bool {
 	return true
-}
-
-func docEmailExtractor(doc *goquery.Document) []string {
-	seen := map[string]bool{}
-
-	var emails []string
-
-	doc.Find("a[href^='mailto:']").Each(func(_ int, s *goquery.Selection) {
-		mailto, exists := s.Attr("href")
-		if exists {
-			value := strings.TrimPrefix(mailto, "mailto:")
-			if email, err := getValidEmail(value); err == nil {
-				if !seen[email] {
-					emails = append(emails, email)
-					seen[email] = true
-				}
-			}
-		}
-	})
-
-	return emails
-}
-
-func regexEmailExtractor(body []byte) []string {
-	seen := map[string]bool{}
-
-	var emails []string
-
-	addresses := emailaddress.Find(body, false)
-	for i := range addresses {
-		if !seen[addresses[i].String()] {
-			emails = append(emails, addresses[i].String())
-			seen[addresses[i].String()] = true
-		}
-	}
-
-	return emails
-}
-
-func getValidEmail(s string) (string, error) {
-	email, err := emailaddress.Parse(strings.TrimSpace(s))
-	if err != nil {
-		return "", err
-	}
-
-	return email.String(), nil
 }
 
 // normalizeGoogleURL extracts the actual target URL from Google redirect URLs.
