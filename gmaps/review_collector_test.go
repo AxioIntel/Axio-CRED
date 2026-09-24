@@ -93,7 +93,8 @@ func collector(cfg ReviewConfig, browser, http rpcFetcher, dom domExtractor) (*r
 			slept = append(slept, d)
 			return ctx.Err()
 		},
-		newID: func() (string, error) { return "req-1", nil },
+		newID:  func() (string, error) { return "req-1", nil },
+		jitter: func(time.Duration) time.Duration { return 0 },
 	}
 
 	return c, &slept, clock
@@ -329,8 +330,10 @@ func TestWithProxiesTheProxylessRouteIsNeverOffered(t *testing.T) {
 	with := newReviewCollector(ReviewConfig{Proxies: []string{"http://u:p@proxy.example:8080"}}, nil, "https://maps")
 	without := newReviewCollector(ReviewConfig{}, nil, "https://maps")
 
-	assert.Nil(t, with.http)
-	assert.NotNil(t, without.http, "unchanged for runs with no proxies")
+	_, proxyless := with.http.(stealthRPC)
+	assert.False(t, proxyless, "with proxies, never the route that uses this machine's own address")
+	_, proxyless = without.http.(stealthRPC)
+	assert.True(t, proxyless, "unchanged for runs with no proxies")
 }
 
 func TestNoRouteAtAllIsAnError(t *testing.T) {

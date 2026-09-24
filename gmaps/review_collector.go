@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"time"
 
 	"github.com/gosom/scrapemate"
@@ -33,6 +34,8 @@ const (
 	defaultReviewPageDelay = 500 * time.Millisecond
 	// A transient failure is retried this many times on the same stage before it counts.
 	transientRetries = 2
+	// Pacing never slows beyond this, however many transient failures a run meets.
+	maxPageDelay = 8 * time.Second
 )
 
 func (c ReviewConfig) withDefaults() ReviewConfig {
@@ -56,6 +59,17 @@ type rpcFetcher interface {
 	fetchPage(ctx context.Context, url string) (rpcResponse, error)
 }
 
+// rotatingFetcher is a route with more than one identity: when Google refuses the one in use,
+// `rotate` moves to the next and says whether there was one.
+type rotatingFetcher interface {
+	rotate() bool
+}
+
+// closingFetcher holds something to release when the run ends (an identity's sessions).
+type closingFetcher interface {
+	close()
+}
+
 // domExtractor scrolls the public review panel (`extractReviewsFromPage` in production).
 type domExtractor func(ctx context.Context, known *reviewSet, target, cap int) []DOMReview
 
@@ -74,9 +88,14 @@ type reviewCollector struct {
 	dom     domExtractor
 	urlFor  func(token, requestID string) (string, error)
 
-	now   func() time.Time
-	sleep func(ctx context.Context, d time.Duration) error
-	newID func() (string, error)
+	now    func() time.Time
+	sleep  func(ctx context.Context, d time.Duration) error
+	newID  func() (string, error)
+	jitter func(d time.Duration) time.Duration
+
+	// pace is the delay between two pages now: the configured one, doubled after each transient
+	// failure for the rest of the run, up to maxPageDelay.
+	pace time.Duration
 }
 
 // newReviewCollector wires the production seams for one place page.
@@ -87,9 +106,10 @@ func newReviewCollector(cfg ReviewConfig, page scrapemate.BrowserPage, mapURL st
 		urlFor: func(token, requestID string) (string, error) {
 			return reviewPageURL(mapURL, token, requestID, 20)
 		},
-		now:   time.Now,
-		sleep: sleepCtx,
-		newID: func() (string, error) { return generateRandomID(21) },
+		now:    time.Now,
+		sleep:  sleepCtx,
+		newID:  func() (string, error) { return generateRandomID(21) },
+		jitter: randomJitter,
 	}
 	if page != nil {
 		c.browser = pageRPC{page: page}
@@ -97,13 +117,28 @@ func newReviewCollector(cfg ReviewConfig, page scrapemate.BrowserPage, mapURL st
 			return extractReviewsFromPage(ctx, page, known, target, cap)
 		}
 	}
-	// Proxy-less HTTP calls Google from this machine's own address. With proxies configured that
-	// is exactly what the operator ruled out, so it is not offered; B3 replaces it with an
-	// identity-bound client that goes through them.
-	if len(cfg.Proxies) == 0 {
+	// With proxies, the HTTP route is one identity per proxy and rotates when refused. Without,
+	// it is the proxy-less client this collector always had -- it calls Google from this machine's
+	// own address, which is why it is never offered when proxies are configured.
+	if len(cfg.Proxies) > 0 {
+		client, err := newIdentityClient(cfg.Proxies, azuretlsTransport{})
+		if err != nil {
+			log.Printf("review HTTP route not offered: %v", err)
+		} else {
+			c.http = client
+		}
+	} else {
 		c.http = stealthRPC{client: stealth.New("firefox", nil)}
 	}
 	return c
+}
+
+// randomJitter is up to `d` more, so page requests do not arrive on a fixed beat.
+func randomJitter(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	return time.Duration(rand.Int64N(int64(d)))
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
@@ -129,9 +164,11 @@ type rpcCursor struct {
 }
 
 // stageOutcome is how one stage ended: a stop reason, and a detail when it did not end cleanly.
+// afterRotation marks a failure on the first page asked of a freshly rotated identity.
 type stageOutcome struct {
-	reason string
-	detail string
+	reason        string
+	detail        string
+	afterRotation bool
 }
 
 // run collects one place's reviews through each available stage in turn until the listing is
@@ -142,6 +179,11 @@ func (c *reviewCollector) run(ctx context.Context, reported int) reviewResult {
 	deadline := start.Add(c.cfg.Budget)
 	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(c.cfg.Budget))
 	defer cancel()
+	defer c.release()
+
+	if c.pace <= 0 {
+		c.pace = c.cfg.PageDelay
+	}
 
 	set := newReviewSet(nil, c.cfg.MaxReviews)
 	report := ReviewCollection{
@@ -223,6 +265,15 @@ func (c *reviewCollector) run(ctx context.Context, reported int) reviewResult {
 	return finish(last, lastStage)
 }
 
+// release frees what the routes held for the run.
+func (c *reviewCollector) release() {
+	for _, f := range []rpcFetcher{c.browser, c.http} {
+		if cl, ok := f.(closingFetcher); ok {
+			cl.close()
+		}
+	}
+}
+
 func (c *reviewCollector) pastDeadline(ctx context.Context, deadline time.Time) bool {
 	return ctx.Err() != nil || !c.now().Before(deadline)
 }
@@ -247,6 +298,19 @@ func (c *reviewCollector) runRPCStage(ctx context.Context, deadline time.Time, f
 
 		page, outcome, ok := c.fetchOnePage(ctx, deadline, f, url, report)
 		if !ok {
+			// A page token may be bound to the identity it was handed to. When a fresh identity
+			// cannot carry on from it, read the listing again from the start as that identity --
+			// once. What was collected stays; the set absorbs the pages read twice.
+			if outcome.afterRotation && cursor.token != "" && report.Restarts == 0 {
+				requestID, err := c.newID()
+				if err != nil {
+					return outcome
+				}
+				report.Restarts++
+				budgetPages += report.RPCPages
+				cursor.token, cursor.requestID, cursor.seen = "", requestID, map[string]bool{}
+				continue
+			}
 			return outcome
 		}
 
@@ -262,7 +326,7 @@ func (c *reviewCollector) runRPCStage(ctx context.Context, deadline time.Time, f
 		cursor.seen[page.NextToken] = true
 		cursor.token = page.NextToken
 
-		if err := c.sleep(ctx, c.cfg.PageDelay); err != nil {
+		if err := c.sleep(ctx, c.pace+c.jitter(c.pace)); err != nil {
 			return stageOutcome{reason: stopBudget}
 		}
 	}
@@ -272,7 +336,10 @@ func (c *reviewCollector) runRPCStage(ctx context.Context, deadline time.Time, f
 // returns the page, or the outcome that ends the stage.
 func (c *reviewCollector) fetchOnePage(ctx context.Context, deadline time.Time, f rpcFetcher,
 	url string, report *ReviewCollection) (rpcPage, stageOutcome, bool) {
-	for attempt := 0; ; attempt++ {
+	rotated := false
+	attempt := 0
+
+	for {
 		resp, err := f.fetchPage(ctx, url)
 		verdict, detail := classifyRPC(resp, err)
 
@@ -280,17 +347,28 @@ func (c *reviewCollector) fetchOnePage(ctx context.Context, deadline time.Time, 
 		case verdictOK:
 			page, perr := parseRPCPage(resp.Body)
 			if perr != nil {
-				return rpcPage{}, stageOutcome{reason: stopParseError, detail: perr.Error()}, false
+				return rpcPage{}, stageOutcome{reason: stopParseError, detail: perr.Error(), afterRotation: rotated}, false
 			}
 			return page, stageOutcome{}, true
+
 		case verdictBlocked:
 			report.Blocks++
+			// Refused as this identity: ask the same page as the next one, when the route has one.
+			if rf, ok := f.(rotatingFetcher); ok && !c.pastDeadline(ctx, deadline) && rf.rotate() {
+				report.IdentityRotations++
+				rotated, attempt = true, 0
+				continue
+			}
 			return rpcPage{}, stageOutcome{reason: stopBlocked, detail: detail}, false
+
 		case verdictInvalid:
-			return rpcPage{}, stageOutcome{reason: stopError, detail: detail}, false
+			return rpcPage{}, stageOutcome{reason: stopError, detail: detail, afterRotation: rotated}, false
 		}
 
-		// Transient.
+		// Transient: slow the rest of the run down, then retry the same identity.
+		if c.pace < maxPageDelay {
+			c.pace = min(maxPageDelay, max(c.pace*2, time.Second))
+		}
 		if c.pastDeadline(ctx, deadline) {
 			return rpcPage{}, stageOutcome{reason: stopBudget}, false
 		}
@@ -300,6 +378,7 @@ func (c *reviewCollector) fetchOnePage(ctx context.Context, deadline time.Time, 
 		if err := c.sleep(ctx, time.Duration(2<<attempt)*time.Second); err != nil {
 			return rpcPage{}, stageOutcome{reason: stopBudget}, false
 		}
+		attempt++
 	}
 }
 
