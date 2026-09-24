@@ -10,7 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/AxioIntel/Axio-CRED/deduper"
 	"github.com/AxioIntel/Axio-CRED/exiter"
@@ -32,7 +35,20 @@ type webrunner struct {
 	cfg       *runner.Config
 	leads     *leads.Store
 	setupMate func(context.Context, io.Writer, *web.Job) (mateRunner, error)
+
+	// The running job, for the stall watchdog.
+	mu            sync.Mutex
+	currentID     string
+	cancelCurrent context.CancelFunc
+	stalled       map[string]bool
+	attempts      map[string]int
+
+	// watchEvery and stallAfter override the watchdog's timing (tests); zero is the default.
+	watchEvery, stallAfter time.Duration
 }
+
+// A job whose run is stopped by the watchdog is queued again at most this many times.
+const maxStallRetries = 2
 
 // browserUA is what the dashboard's browser says it is: the Chromium the image actually runs
 // (playwright chromium v1228 = Chrome 149, on Linux). Without it scrapemate presents a hard-coded
@@ -106,6 +122,12 @@ func (w *webrunner) Run(ctx context.Context) error {
 
 	egroup.Go(func() error {
 		return w.work(ctx)
+	})
+
+	egroup.Go(func() error {
+		w.watchdog(ctx)
+
+		return nil
 	})
 
 	egroup.Go(func() error {
@@ -247,6 +269,7 @@ func (w *webrunner) work(ctx context.Context) error {
 					}
 
 					w.ingest(ctx, &jobs[i])
+					w.afterJob(ctx, &jobs[i])
 				}
 			}
 		}
@@ -308,7 +331,7 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 	seedJobs, err := runner.CreateSeedJobs(
 		job.Data.FastMode,
 		job.Data.Lang,
-		strings.NewReader(strings.Join(job.Data.Keywords, "\n")),
+		strings.NewReader(taggedSearches(job.Data.Keywords)),
 		job.Data.Depth,
 		job.Data.Email,
 		coords,
@@ -352,6 +375,9 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 
 		mateCtx, cancel := context.WithTimeout(ctx, time.Duration(allowedSeconds)*time.Second)
 		defer cancel()
+
+		w.setCurrent(job.ID, cancel)
+		defer w.setCurrent("", nil)
 
 		exitMonitor.SetCancelFunc(cancel)
 
@@ -432,5 +458,230 @@ func defaultSetupMate(cfg *runner.Config) func(context.Context, io.Writer, *web.
 		}
 
 		return scrapemateapp.NewScrapeMateApp(matecfg)
+	}
+}
+
+// taggedSearches is the job's searches as seed lines tagged with their own words ("q#!#q"), so the
+// scraper writes each row's search into its input_id: the lead list keeps it, and afterJob can
+// tell which searches came back empty.
+func taggedSearches(keywords []string) string {
+	lines := make([]string, 0, len(keywords))
+
+	for _, k := range keywords {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+
+		if strings.Contains(k, "#!#") {
+			lines = append(lines, k)
+
+			continue
+		}
+
+		lines = append(lines, k+"#!#"+k)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+func (w *webrunner) setCurrent(id string, cancel context.CancelFunc) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.currentID, w.cancelCurrent = id, cancel
+}
+
+// watchdog stops a running job that has written no new listing for web.StallAfter: a browser
+// that hung, or a Google page that never answered. The job's results so far are kept, and
+// afterJob queues it again.
+func (w *webrunner) watchdog(ctx context.Context) {
+	every, stallAfter := 30*time.Second, web.StallAfter
+	if w.watchEvery > 0 {
+		every = w.watchEvery
+	}
+
+	if w.stallAfter > 0 {
+		stallAfter = w.stallAfter
+	}
+
+	t := time.NewTicker(every)
+	defer t.Stop()
+
+	var (
+		watching   string
+		lastRows   int
+		lastChange time.Time
+	)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-t.C:
+			w.mu.Lock()
+			id, cancel := w.currentID, w.cancelCurrent
+			w.mu.Unlock()
+
+			if id == "" || cancel == nil {
+				watching = ""
+
+				continue
+			}
+
+			rows := w.svc.CountRows(id)
+
+			if id != watching || rows != lastRows {
+				watching, lastRows, lastChange = id, rows, now
+
+				continue
+			}
+
+			if now.Sub(lastChange) < stallAfter {
+				continue
+			}
+
+			w.mu.Lock()
+			if w.stalled == nil {
+				w.stalled = map[string]bool{}
+			}
+
+			w.stalled[id] = true
+			w.mu.Unlock()
+
+			log.Printf("job %s: no new listing for %s; stopping it to start again", id, web.StallAfter)
+			w.note(fmt.Sprintf("stalled %s with no new listing; restarting the job", web.StallAfter))
+			cancel()
+
+			watching = ""
+		}
+	}
+}
+
+// afterJob is what happens once a job's run ends: a run the watchdog stopped goes back in the
+// queue (at most maxStallRetries times), and searches that returned nothing get one retry job.
+func (w *webrunner) afterJob(ctx context.Context, job *web.Job) {
+	w.mu.Lock()
+	stalled := w.stalled[job.ID]
+	delete(w.stalled, job.ID)
+
+	if stalled {
+		if w.attempts == nil {
+			w.attempts = map[string]int{}
+		}
+
+		w.attempts[job.ID]++
+	}
+
+	tries := w.attempts[job.ID]
+	w.mu.Unlock()
+
+	if stalled {
+		if tries <= maxStallRetries {
+			job.Status = web.StatusPending
+			w.note(fmt.Sprintf("%q queued again after a stall (%d of %d)", job.Name, tries, maxStallRetries))
+		} else {
+			job.Status = web.StatusFailed
+			w.note(fmt.Sprintf("%q failed: stalled %d times", job.Name, tries))
+		}
+
+		if err := w.svc.Update(ctx, job); err != nil {
+			log.Printf("job %s: could not requeue after a stall: %v", job.ID, err)
+		}
+
+		return
+	}
+
+	if job.Status != web.StatusOK || strings.HasPrefix(job.Name, retryPrefix) {
+		return
+	}
+
+	empty := emptySearches(filepath.Join(w.cfg.DataFolder, job.ID+".csv"), job.Data.Keywords)
+	if len(empty) == 0 {
+		return
+	}
+
+	retry := *job
+	retry.ID = uuid.New().String()
+	retry.Name = retryPrefix + job.Name
+	retry.Date = time.Now().UTC()
+	retry.Status = web.StatusPending
+	retry.Data.Keywords = empty
+
+	if err := w.svc.Create(ctx, &retry); err != nil {
+		log.Printf("job %s: could not queue a retry of %d empty searches: %v", job.ID, len(empty), err)
+
+		return
+	}
+
+	w.note(fmt.Sprintf("%d search(es) in %q came back empty; queued once more", len(empty), job.Name))
+}
+
+// retryPrefix names the one retry job of a job's empty searches; a retry is not retried again.
+const retryPrefix = "Retry: "
+
+// emptySearches are the searches with no row in a finished job's CSV (by the input_id every row
+// carries). A CSV without input_id (a job from before tagging) reports none.
+func emptySearches(csvPath string, keywords []string) []string {
+	f, err := os.Open(csvPath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	r := csv.NewReader(f)
+	r.FieldsPerRecord = -1
+	r.LazyQuotes = true
+
+	header, err := r.Read()
+	if err != nil {
+		return nil
+	}
+
+	col := -1
+
+	for i, h := range header {
+		if strings.TrimSpace(strings.TrimPrefix(h, "\ufeff")) == "input_id" {
+			col = i
+		}
+	}
+
+	if col < 0 {
+		return nil
+	}
+
+	found := map[string]bool{}
+
+	for {
+		rec, err := r.Read()
+		if err != nil {
+			break
+		}
+
+		if col < len(rec) {
+			found[strings.TrimSpace(rec[col])] = true
+		}
+	}
+
+	if len(found) == 0 {
+		return nil // nothing at all came back: not a few empty searches, but a failed job
+	}
+
+	var out []string
+
+	for _, k := range keywords {
+		k = strings.TrimSpace(k)
+		if k != "" && !found[k] {
+			out = append(out, k)
+		}
+	}
+
+	return out
+}
+
+// note shows a message in the dashboard's metrics strip (and nowhere, without a server).
+func (w *webrunner) note(msg string) {
+	if w.srv != nil {
+		w.srv.Note(msg)
 	}
 }

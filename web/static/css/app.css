@@ -176,3 +176,16 @@ td input.note { min-width: 160px; }
 .spec .gate.hold { color: var(--red); border-color: rgba(239,68,68,.4); }
 .toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; }
 .toc a { font-size: 12.5px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); }
+
+/* Metrics strip */
+#metrics { position: sticky; top: 56px; z-index: 9; background: #121215; border-bottom: 1px solid var(--line); }
+.metrics { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; padding: 7px 24px; font-size: 12.5px; color: var(--muted); }
+.metrics .m b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.metrics .m i { font-style: normal; color: var(--faint); }
+.metrics .m-warm b { color: var(--amber); }
+.metrics .m-hot b { color: var(--red); }
+.metrics .m-job .state { font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: .4px; }
+.metrics .m-running .state { color: var(--green); }
+.metrics .m-slow .state { color: var(--amber); }
+.metrics .m-stalled .state { color: var(--red); }
+.metrics .m-note { color: var(--amber); }

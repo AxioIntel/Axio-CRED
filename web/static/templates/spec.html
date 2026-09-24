@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AxioIntel spec · AxioCRED Leads</title>
     <link rel="stylesheet" href="/static/css/app.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.6/htmx.min.js"></script>
 </head>
 <body>
     <header class="topbar">
@@ -17,6 +18,7 @@
         <div class="spacer"></div>
         <a class="small-link" href="/api/docs" target="_blank" rel="noopener noreferrer">API</a>
     </header>
+    <div id="metrics" hx-get="/metrics" hx-trigger="load, every 5s" hx-swap="innerHTML"></div>
 
     <main class="page spec">
         <h1>AxioIntel ↔ AxioCRED: the primary-scraper spec</h1>
@@ -42,7 +44,7 @@
             <tr><td><code>collect.sh</code> asks AxioIntel what to collect</td><td>Axio-CRED #7</td><td><span class="gate done">green</span></td></tr>
             <tr><td>Review collector: dedupe, wall clock, proxy identities, coverage report, lab mode</td><td>Axio-CRED #8</td><td><span class="gate done">built</span>CI runs once #7 merges</td></tr>
             <tr><td>Collector VM (Hetzner CPX22, Helsinki)</td><td>2.29.53.229</td><td><span class="gate done">live</span>runs this dashboard; lab mode</td></tr>
-            <tr><td>Proxy pool (5–10 ISP/residential IPs, flat monthly)</td><td>owner purchase</td><td><span class="gate todo">to do</span></td></tr>
+            <tr><td>Proxy pool (Webshare static residential, 20 IPs, flat monthly)</td><td>/etc/axiointel/proxies.txt</td><td><span class="gate done">in place</span>since 25 Sep 2026</td></tr>
             <tr><td>A week of lab numbers against Apify</td><td>this VM</td><td><span class="gate todo">to do</span></td></tr>
         </table>
 

@@ -34,6 +34,7 @@ type Server struct {
 	leads      *leads.Store
 	saleshandy *saleshandy.Client
 	shConfig   *saleshandy.Config
+	metrics    metricsState
 }
 
 func New(svc *Service, addr string, opts ...Option) (*Server, error) {
@@ -64,6 +65,11 @@ func New(svc *Service, addr string, opts ...Option) (*Server, error) {
 
 	ans.registerLeadRoutes(mux)
 	ans.registerSaleshandyRoutes(mux)
+	mux.HandleFunc("GET /metrics", ans.metricsPartial)
+	mux.HandleFunc("POST /rerun", func(w http.ResponseWriter, r *http.Request) {
+		ans.rerun(w, requestWithID(r))
+	})
+	mux.HandleFunc("GET /api/v1/metrics", ans.metricsJSON)
 	mux.HandleFunc("GET /spec", func(w http.ResponseWriter, _ *http.Request) {
 		ans.render(w, "static/templates/spec.html", nil)
 	})
@@ -168,6 +174,8 @@ func New(svc *Service, addr string, opts ...Option) (*Server, error) {
 }
 
 func (s *Server) Start(ctx context.Context) error {
+	go s.sampleMetricsLoop(ctx)
+
 	go func() {
 		<-ctx.Done()
 
@@ -785,4 +793,42 @@ func securityHeaders(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// rerun puts a finished job back in the queue, next in line, to run again from its first search: the way back
+// on track for a job that ended short. Its earlier results stay in the lead list, which merges the
+// two runs.
+func (s *Server) rerun(w http.ResponseWriter, r *http.Request) {
+	id, ok := getIDFromRequest(r)
+	if !ok {
+		http.Error(w, "invalid job id", http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	job, err := s.svc.Get(r.Context(), id.String())
+	if err != nil {
+		http.Error(w, "job not found", http.StatusNotFound)
+
+		return
+	}
+
+	if job.Status == StatusPending || job.Status == StatusWorking {
+		http.Error(w, "the job is already queued or running", http.StatusConflict)
+
+		return
+	}
+
+	// It keeps its place by age, so it runs next: getting a job back on track comes first.
+	job.Status = StatusPending
+
+	if err := s.svc.Update(r.Context(), &job); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	s.Note(fmt.Sprintf("%q queued to run again", job.Name))
+	w.Header().Set("HX-Trigger", "jobs-changed")
+	w.WriteHeader(http.StatusNoContent)
 }
