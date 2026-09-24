@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leads · AxioCRED Leads</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.6/htmx.min.js"></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">Axio<span>CRED</span> Leads</div>
+        <nav class="tabs">
+            <a href="/">Scrape</a>
+            <a href="/leads" class="active">Leads</a>
+        </nav>
+        <div class="spacer"></div>
+        <a class="small-link" href="/api/docs" target="_blank" rel="noopener noreferrer">API</a>
+    </header>
+
+    <main class="page">
+        <div class="tiles">
+            <div class="tile"><div class="v">{{.Stats.Total}}</div><div class="k">Leads</div></div>
+            <div class="tile"><div class="v">{{.Stats.WithEmail}}</div><div class="k">With an email</div></div>
+            <div class="tile"><div class="v">{{.Stats.WithPhone}}</div><div class="k">With a phone</div></div>
+            <div class="tile"><div class="v">{{.Stats.Contacted}}</div><div class="k">Worked (not "new")</div></div>
+        </div>
+
+        <section class="card">
+            <div class="card-body">
+                <form id="lead-filters"
+                      hx-get="/leads/table"
+                      hx-target="#leads-table"
+                      hx-trigger="change, keyup changed delay:400ms from:.live, leads-changed from:body"
+                      onsubmit="return false">
+                    {{if .Filter.JobID}}<input type="hidden" name="job" value="{{.Filter.JobID}}">{{end}}
+                    <div class="filters">
+                        <div class="field">
+                            <label for="q">Search</label>
+                            <input type="search" id="q" name="q" class="live" placeholder="Name, email, phone or website" value="{{.Filter.Q}}">
+                        </div>
+                        <div class="field">
+                            <label for="city">City</label>
+                            <input type="text" id="city" name="city" class="live" value="{{.Filter.City}}">
+                        </div>
+                        <div class="field">
+                            <label for="category">Category</label>
+                            <input type="text" id="category" name="category" class="live" value="{{.Filter.Category}}">
+                        </div>
+                        <div class="field">
+                            <label for="status">Status</label>
+                            <select id="status" name="status">
+                                <option value="">Any</option>
+                                {{range .Statuses}}<option value="{{.}}" {{if eq . $.Filter.Status}}selected{{end}}>{{.}}</option>{{end}}
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="min_rating">Rating</label>
+                            <select id="min_rating" name="min_rating">
+                                <option value="">Any</option>
+                                <option value="3">3.0+</option>
+                                <option value="4">4.0+</option>
+                                <option value="4.5">4.5+</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="min_reviews">Reviews</label>
+                            <select id="min_reviews" name="min_reviews">
+                                <option value="">Any</option>
+                                <option value="10">10+</option>
+                                <option value="50">50+</option>
+                                <option value="200">200+</option>
+                                <option value="1000">1,000+</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="sort">Sort</label>
+                            <select id="sort" name="sort">
+                                <option value="newest">Newest</option>
+                                <option value="rating">Rating</option>
+                                <option value="reviews">Reviews</option>
+                                <option value="name">Name</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="filter-checks">
+                        <label class="check"><input type="checkbox" name="has_email" {{if .Filter.HasEmail}}checked{{end}}> Has email</label>
+                        <label class="check"><input type="checkbox" name="has_phone" {{if .Filter.HasPhone}}checked{{end}}> Has phone</label>
+                        <label class="check"><input type="checkbox" name="has_website" {{if .Filter.HasWebsite}}checked{{end}}> Has website</label>
+                        <select name="source" style="width:auto">
+                            <option value="">All sources</option>
+                            <option value="google_maps">Google Maps</option>
+                            <option value="practo">Practo</option>
+                        </select>
+                        {{if .Filter.JobID}}<span class="chip">Job: {{if .JobName}}{{.JobName}}{{else}}{{.Filter.JobID}}{{end}}</span> <a href="/leads" class="faint">show all</a>{{end}}
+                    </div>
+                </form>
+            </div>
+
+            <div class="toolbar">
+                <span class="muted">With ticked leads:</span>
+                <select id="bulk-status" style="width:auto">
+                    {{range .Statuses}}<option value="{{.}}">Mark {{.}}</option>{{end}}
+                </select>
+                <button class="btn btn-sm" type="button" onclick="bulkStatus()">Apply</button>
+                <div class="spacer"></div>
+                <span class="muted">Export everything matching the filters:</span>
+                <button class="btn btn-sm" type="button" onclick="exportLeads('csv')">CSV</button>
+                <button class="btn btn-sm" type="button" onclick="exportLeads('xlsx')">Excel</button>
+            </div>
+
+            <div id="leads-table" hx-get="/leads/table" hx-include="#lead-filters" hx-trigger="load">
+                <div class="empty">Loading…</div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+    function filterQuery() {
+        var params = new URLSearchParams(new FormData(document.getElementById('lead-filters')));
+        params.delete('page');
+        return params.toString();
+    }
+    function exportLeads(format) {
+        window.location = '/leads/export?format=' + format + '&' + filterQuery();
+    }
+    function bulkStatus() {
+        var ids = Array.prototype.map.call(document.querySelectorAll('input.pick:checked'), function (c) { return c.value; });
+        if (ids.length === 0) { alert('Tick at least one lead first.'); return; }
+        var values = { id: ids, status: document.getElementById('bulk-status').value, bulk: '1' };
+        htmx.ajax('POST', '/leads/status', { values: values, swap: 'none' }).then(function () {
+            htmx.trigger(document.body, 'leads-changed');
+        });
+    }
+    function toggleAll(box) {
+        document.querySelectorAll('input.pick').forEach(function (c) { c.checked = box.checked; });
+    }
+    </script>
+</body>
+</html>

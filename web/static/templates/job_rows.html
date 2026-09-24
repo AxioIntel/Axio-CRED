@@ -1,24 +1,28 @@
 {{range .}}
 <tr>
-    <td>{{.ID}}</td>
-    <td>{{.Name}}</td>
-    <td>{{.Date}}</td>
     <td>
-        <span class="status-indicator status-{{.Status}}">{{.Status}}</span>
+        <div><strong>{{.Name}}</strong></div>
+        <div class="faint">{{.Searches}} search{{if ne .Searches 1}}es{{end}}{{if .Data.Email}} · emails{{end}}</div>
     </td>
-    <td>
+    <td class="nowrap muted">{{.Date.Format "Jan 2, 15:04"}} UTC</td>
+    <td><span class="badge badge-{{.Status}}">{{.Status}}</span></td>
+    <td class="num"><strong>{{.Leads}}</strong></td>
+    <td class="nowrap">
+        {{ if gt .Leads 0 }}<a href="/leads?job={{.ID}}" class="btn btn-sm">Leads</a>{{ end }}
         {{ if eq .Status "ok" }}
-            <button type="button" class="button view-button"
+            <button type="button" class="btn btn-sm"
                     hx-get="/view?id={{.ID}}"
                     hx-target="#map-modal-container"
-                    hx-swap="innerHTML">View</button>
-            <a href="/download?id={{.ID}}" download class="button download-button">Download</a>
+                    hx-swap="innerHTML">Map</button>
+            <a href="/download?id={{.ID}}" download class="btn btn-sm" title="Every column the scraper collected">Raw CSV</a>
         {{ end }}
-        <button hx-delete="/delete?id={{.ID}}" 
+        <button hx-delete="/delete?id={{.ID}}"
                 hx-target="closest tr"
                 hx-swap="outerHTML"
-                hx-confirm="Are you sure you want to delete this job?"
-                class="delete-button">Delete</button>
+                hx-confirm="Delete this job? Its leads stay in the lead list."
+                class="btn btn-sm btn-danger">Delete</button>
     </td>
 </tr>
+{{else}}
+<tr><td colspan="5" class="empty">No jobs yet. Add a search on the left and press Start.</td></tr>
 {{end}}

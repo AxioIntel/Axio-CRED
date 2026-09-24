@@ -17,6 +17,7 @@ import (
 	"github.com/AxioIntel/Axio-CRED/runner"
 	"github.com/AxioIntel/Axio-CRED/tlmt"
 	"github.com/AxioIntel/Axio-CRED/web"
+	"github.com/AxioIntel/Axio-CRED/web/leads"
 	"github.com/AxioIntel/Axio-CRED/web/sqlite"
 	"github.com/gosom/scrapemate"
 	"github.com/gosom/scrapemate/adapters/writers/csvwriter"
@@ -28,6 +29,7 @@ type webrunner struct {
 	srv       *web.Server
 	svc       *web.Service
 	cfg       *runner.Config
+	leads     *leads.Store
 	setupMate func(context.Context, io.Writer, *web.Job) (mateRunner, error)
 }
 
@@ -56,7 +58,13 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 
 	svc := web.NewService(repo, cfg.DataFolder)
 
-	srv, err := web.New(svc, cfg.Addr)
+	// Every job's results also land in one deduplicated lead list, which outlives the jobs.
+	leadStore, err := leads.Open(filepath.Join(cfg.DataFolder, "leads.db"))
+	if err != nil {
+		return nil, err
+	}
+
+	srv, err := web.New(svc, cfg.Addr, web.WithLeads(leadStore))
 	if err != nil {
 		return nil, err
 	}
@@ -65,6 +73,7 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 		srv:       srv,
 		svc:       svc,
 		cfg:       cfg,
+		leads:     leadStore,
 		setupMate: defaultSetupMate(cfg),
 	}
 
@@ -86,10 +95,63 @@ func (w *webrunner) Run(ctx context.Context) error {
 }
 
 func (w *webrunner) Close(context.Context) error {
+	if w.leads != nil {
+		return w.leads.Close()
+	}
+
 	return nil
 }
 
+// ingest folds a finished job's CSV into the lead list. A job that failed part-way is ingested for
+// what it found. Failures are logged, never fatal: the CSV stays and the next start retries it.
+func (w *webrunner) ingest(ctx context.Context, job *web.Job) {
+	if w.leads == nil {
+		return
+	}
+
+	path := filepath.Join(w.cfg.DataFolder, job.ID+".csv")
+	if _, err := os.Stat(path); err != nil {
+		return
+	}
+
+	n, err := w.leads.IngestCSV(ctx, job.ID, path)
+	if err != nil {
+		log.Printf("job %s: adding its results to the lead list failed: %v", job.ID, err)
+
+		return
+	}
+
+	log.Printf("job %s: %d result(s) added to the lead list", job.ID, n)
+}
+
+// backfill adds every finished job not yet in the lead list: the jobs run before the lead list
+// existed, and any whose ingest failed.
+func (w *webrunner) backfill(ctx context.Context) {
+	if w.leads == nil {
+		return
+	}
+
+	jobs, err := w.svc.All(ctx)
+	if err != nil {
+		log.Printf("lead list backfill: %v", err)
+
+		return
+	}
+
+	for i := range jobs {
+		if jobs[i].Status != web.StatusOK && jobs[i].Status != web.StatusFailed {
+			continue
+		}
+
+		if done, err := w.leads.Ingested(ctx, jobs[i].ID); err == nil && !done {
+			w.ingest(ctx, &jobs[i])
+		}
+	}
+}
+
 func (w *webrunner) work(ctx context.Context) error {
+	w.backfill(ctx)
+
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
@@ -131,6 +193,8 @@ func (w *webrunner) work(ctx context.Context) error {
 
 						log.Printf("job %s scraped successfully", jobs[i].ID)
 					}
+
+					w.ingest(ctx, &jobs[i])
 				}
 			}
 		}
@@ -209,6 +273,8 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		w.cfg.ExtraReviews || job.Data.ExtraReviews,
 	)
 	if err != nil {
+		job.Status = web.StatusFailed
+
 		err2 := w.svc.Update(ctx, job)
 		if err2 != nil {
 			log.Printf("failed to update job status: %v", err2)
@@ -242,6 +308,8 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		err = mate.Start(mateCtx, seedJobs...)
 		if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 			cancel()
+
+			job.Status = web.StatusFailed
 
 			err2 := w.svc.Update(ctx, job)
 			if err2 != nil {

@@ -19,18 +19,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/AxioIntel/Axio-CRED/web/leads"
 )
 
 //go:embed static
 var static embed.FS
 
 type Server struct {
-	tmpl map[string]*template.Template
-	srv  *http.Server
-	svc  *Service
+	tmpl  map[string]*template.Template
+	srv   *http.Server
+	svc   *Service
+	leads *leads.Store
 }
 
-func New(svc *Service, addr string) (*Server, error) {
+func New(svc *Service, addr string, opts ...Option) (*Server, error) {
 	ans := Server{
 		svc:  svc,
 		tmpl: make(map[string]*template.Template),
@@ -49,8 +52,14 @@ func New(svc *Service, addr string) (*Server, error) {
 		return nil, err
 	}
 
+	for _, opt := range opts {
+		opt(&ans)
+	}
+
 	fileServer := http.FileServer(http.FS(staticFS))
 	mux := http.NewServeMux()
+
+	ans.registerLeadRoutes(mux)
 
 	mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
 	mux.HandleFunc("/scrape", ans.scrape)
@@ -134,6 +143,8 @@ func New(svc *Service, addr string) (*Server, error) {
 		"static/templates/job_row.html",
 		"static/templates/job_view.html",
 		"static/templates/redoc.html",
+		"static/templates/leads.html",
+		"static/templates/leads_table.html",
 	}
 
 	for _, key := range tmplsKeys {
@@ -237,7 +248,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 
 	data := formData{
 		Name:     "",
-		MaxTime:  "10m",
+		MaxTime:  "1h",
 		Keywords: []string{},
 		Language: "en",
 		Zoom:     15,
@@ -245,8 +256,8 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		Radius:   10000,
 		Lat:      "0",
 		Lon:      "0",
-		Depth:    10,
-		Email:    false,
+		Depth:    5,
+		Email:    true,
 	}
 
 	_ = tmpl.Execute(w, data)
@@ -298,14 +309,12 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keywords := strings.Split(keywordsStr[0], "\n")
-	for _, k := range keywords {
-		k = strings.TrimSpace(k)
-		if k == "" {
-			continue
+	newJob.Data.Keywords = expandSearches(keywordsStr[0], r.Form.Get("locations"))
+	if newJob.Name == "" && len(newJob.Data.Keywords) > 0 {
+		newJob.Name = newJob.Data.Keywords[0]
+		if n := len(newJob.Data.Keywords); n > 1 {
+			newJob.Name += fmt.Sprintf(" (+%d more)", n-1)
 		}
-
-		newJob.Data.Keywords = append(newJob.Data.Keywords, k)
 	}
 
 	newJob.Data.Lang = r.Form.Get("lang")
@@ -396,7 +405,82 @@ func (s *Server) getJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = tmpl.Execute(w, jobs)
+	_ = tmpl.Execute(w, s.jobRows(r.Context(), jobs))
+}
+
+// jobRow is a job as the job list shows it: with how many leads it found (so far, while running).
+type jobRow struct {
+	Job
+	Leads    int
+	Searches int
+}
+
+func (s *Server) jobRows(ctx context.Context, jobs []Job) []jobRow {
+	var counts map[string]int
+
+	if s.leads != nil {
+		counts, _ = s.leads.JobLeadCounts(ctx)
+	}
+
+	out := make([]jobRow, 0, len(jobs))
+
+	for i := range jobs {
+		row := jobRow{Job: jobs[i], Searches: len(jobs[i].Data.Keywords)}
+
+		if n, ok := counts[jobs[i].ID]; ok {
+			row.Leads = n
+		} else {
+			row.Leads = s.svc.CountRows(jobs[i].ID)
+		}
+
+		out = append(out, row)
+	}
+
+	return out
+}
+
+// expandSearches turns the form's searches and optional locations into the job's keywords: with
+// locations, every search runs in every location ("dentist" x "Austin TX" -> "dentist in Austin
+// TX"); without, each search line runs as typed. Duplicates are dropped.
+func expandSearches(searches, locations string) []string {
+	lines := func(s string) []string {
+		var out []string
+
+		for _, l := range strings.Split(s, "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				out = append(out, l)
+			}
+		}
+
+		return out
+	}
+
+	terms, places := lines(searches), lines(locations)
+	seen := map[string]bool{}
+
+	var out []string
+
+	add := func(k string) {
+		if !seen[strings.ToLower(k)] {
+			seen[strings.ToLower(k)] = true
+
+			out = append(out, k)
+		}
+	}
+
+	for _, t := range terms {
+		if len(places) == 0 {
+			add(t)
+
+			continue
+		}
+
+		for _, p := range places {
+			add(t + " in " + p)
+		}
+	}
+
+	return out
 }
 
 func (s *Server) download(w http.ResponseWriter, r *http.Request) {
