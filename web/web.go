@@ -347,7 +347,8 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newJob.Data.Email = r.Form.Get("email") == "on"
+	// The dashboard always collects the emails on each listing's website; the API still chooses.
+	newJob.Data.Email = true
 
 	proxies := strings.Split(r.Form.Get("proxies"), "\n")
 	if len(proxies) > 0 {

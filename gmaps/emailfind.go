@@ -17,16 +17,16 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-// A business's public contact address is found the way a person finds it: on its website's front
-// page, and when that has none of the business's own, on its contact or about page. Only pages of
-// the business's own site are read, a few at most, and nothing is submitted to any of them.
+// Every public address a business lists is collected the way a person would find them: from its
+// website's front page and from its own contact, about and team pages. Only pages of the business's
+// own site are read, a few at most, and nothing is submitted to any of them.
 
 const (
 	// maxContactPages is how many pages beyond the front page are read for one business.
-	maxContactPages = 3
+	maxContactPages = 4
 	// maxEmailsPerBusiness caps what one site can contribute; a page listing hundreds of addresses
 	// is a directory, not a business's contact details.
-	maxEmailsPerBusiness = 10
+	maxEmailsPerBusiness = 25
 	contactPageTimeout   = 15 * time.Second
 	contactPageMaxBytes  = 2 << 20
 )
@@ -232,18 +232,6 @@ func registrableHost(host string) string {
 	return strings.Join(labels[len(labels)-n:], ".")
 }
 
-func hasOwnDomainEmail(emails []string, siteHost string) bool {
-	site := registrableHost(siteHost)
-
-	for _, e := range emails {
-		if registrableHost(e[strings.LastIndex(e, "@")+1:]) == site {
-			return true
-		}
-	}
-
-	return false
-}
-
 // contactPageLinks are links on the front page to the same site's contact-like pages, best first.
 func contactPageLinks(doc *goquery.Document, base *url.URL) []string {
 	if doc == nil || base == nil {
@@ -355,8 +343,12 @@ func fetchSitePage(ctx context.Context, pageURL string) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(resp.Body, contactPageMaxBytes))
 }
 
-// findBusinessEmails is the whole search for one business: the front page, then — only when that
-// gave none of the business's own addresses — its contact-like pages.
+// guessedContactPaths are tried when the front page links to no contact-like page at all: many
+// small-business sites have one that only their menu script links to.
+var guessedContactPaths = []string{"/contact", "/contact-us", "/about", "/about-us"}
+
+// findBusinessEmails is the whole search for one business: every address on the front page and on
+// up to maxContactPages of its own contact, about and team pages, the business's own domain first.
 func findBusinessEmails(ctx context.Context, siteURL string, doc *goquery.Document, body []byte,
 	fetch pageFetcher) []string {
 	base, _ := url.Parse(siteURL)
@@ -367,11 +359,18 @@ func findBusinessEmails(ctx context.Context, siteURL string, doc *goquery.Docume
 	}
 
 	found := emailsOnPage(doc, body)
-	if hasOwnDomainEmail(found, host) || fetch == nil {
+	if fetch == nil || base == nil {
 		return rankEmails(found, host)
 	}
 
-	for _, link := range contactPageLinks(doc, base) {
+	links := contactPageLinks(doc, base)
+	if len(links) == 0 {
+		for _, p := range guessedContactPaths {
+			links = append(links, base.ResolveReference(&url.URL{Path: p}).String())
+		}
+	}
+
+	for _, link := range links {
 		page, err := fetch(ctx, link)
 		if err != nil {
 			continue
@@ -383,9 +382,6 @@ func findBusinessEmails(ctx context.Context, siteURL string, doc *goquery.Docume
 		}
 
 		found = append(found, emailsOnPage(pageDoc, page)...)
-		if hasOwnDomainEmail(found, host) {
-			break
-		}
 	}
 
 	return rankEmails(found, host)

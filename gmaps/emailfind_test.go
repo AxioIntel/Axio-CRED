@@ -125,17 +125,22 @@ func TestContactPageLinksStayOnTheSiteAndRankContactFirst(t *testing.T) {
 	assert.Equal(t, []string{"https://www.smiledental.com/contact", "https://www.smiledental.com/about-us"}, got)
 }
 
-func TestFindBusinessEmailsReadsTheContactPageOnlyWhenNeeded(t *testing.T) {
-	home := `<html><body><a href="/contact-us">Contact</a><p>Web design by studio@agency.io</p></body></html>`
-	contact := `<html><body><a href="mailto:hello@smiledental.com">hello@smiledental.com</a></body></html>`
+func TestFindBusinessEmailsCollectsEveryAddressFromTheSite(t *testing.T) {
+	// The front page already has one of the business's own addresses; the contact and team pages
+	// have more. All of them are wanted.
+	home := `<html><body><a href="/contact-us">Contact</a> <a href="/our-team">Team</a>
+		info@smiledental.com <p>Web design by studio@agency.io</p></body></html>`
+	pages := map[string]string{
+		"https://smiledental.com/contact-us": `<a href="mailto:bookings@smiledental.com">Book</a> info@smiledental.com`,
+		"https://smiledental.com/our-team":   `Dr Patel: dr.patel@smiledental.com, manager@gmail.com`,
+	}
 
 	var asked []string
 
 	fetch := func(_ context.Context, u string) ([]byte, error) {
 		asked = append(asked, u)
-
-		if strings.HasSuffix(u, "/contact-us") {
-			return []byte(contact), nil
+		if body, ok := pages[u]; ok {
+			return []byte(body), nil
 		}
 
 		return nil, errors.New("not found")
@@ -143,15 +148,34 @@ func TestFindBusinessEmailsReadsTheContactPageOnlyWhenNeeded(t *testing.T) {
 
 	got := findBusinessEmails(context.Background(), "https://smiledental.com/", pageDoc(t, home), []byte(home), fetch)
 
-	assert.Equal(t, []string{"hello@smiledental.com", "studio@agency.io"}, got)
-	assert.Equal(t, []string{"https://smiledental.com/contact-us"}, asked)
+	assert.Equal(t, []string{
+		"info@smiledental.com", "bookings@smiledental.com", "dr.patel@smiledental.com",
+		"studio@agency.io", "manager@gmail.com",
+	}, got)
+	assert.ElementsMatch(t, []string{"https://smiledental.com/contact-us", "https://smiledental.com/our-team"}, asked)
+}
 
-	asked = nil
-	ownOnHome := `<html><body><a href="/contact">Contact</a> info@smiledental.com</body></html>`
-	got = findBusinessEmails(context.Background(), "https://smiledental.com/", pageDoc(t, ownOnHome), []byte(ownOnHome), fetch)
+func TestFindBusinessEmailsTriesTheUsualContactPagesWhenNoneAreLinked(t *testing.T) {
+	home := `<html><body><p>Welcome</p></body></html>`
 
-	assert.Equal(t, []string{"info@smiledental.com"}, got)
-	assert.Empty(t, asked, "the front page had the business's own address; no other page is read")
+	var asked []string
+
+	fetch := func(_ context.Context, u string) ([]byte, error) {
+		asked = append(asked, u)
+		if u == "https://smiledental.com/contact" {
+			return []byte(`hello@smiledental.com`), nil
+		}
+
+		return nil, errors.New("not found")
+	}
+
+	got := findBusinessEmails(context.Background(), "https://smiledental.com/", pageDoc(t, home), []byte(home), fetch)
+
+	assert.Equal(t, []string{"hello@smiledental.com"}, got)
+	assert.Equal(t, []string{
+		"https://smiledental.com/contact", "https://smiledental.com/contact-us",
+		"https://smiledental.com/about", "https://smiledental.com/about-us",
+	}, asked)
 }
 
 func TestFindBusinessEmailsSurvivesAContactPageThatFails(t *testing.T) {
