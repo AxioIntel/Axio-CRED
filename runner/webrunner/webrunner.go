@@ -139,6 +139,36 @@ func (w *webrunner) ingest(ctx context.Context, job *web.Job) {
 	log.Printf("job %s: %d result(s) added to the lead list", job.ID, n)
 }
 
+// requeueInterrupted puts back in the queue any job a restart cut off mid-run (left "working").
+// What it had found so far is added to the lead list first, because the rerun starts its CSV
+// afresh; the lead list merges the two runs' results. Without this, a job stopped by a restart
+// stayed "working" forever and the rest of its searches never ran.
+func (w *webrunner) requeueInterrupted(ctx context.Context) {
+	jobs, err := w.svc.All(ctx)
+	if err != nil {
+		log.Printf("requeueing interrupted jobs: %v", err)
+
+		return
+	}
+
+	for i := range jobs {
+		if jobs[i].Status != web.StatusWorking {
+			continue
+		}
+
+		w.ingest(ctx, &jobs[i])
+
+		jobs[i].Status = web.StatusPending
+		if err := w.svc.Update(ctx, &jobs[i]); err != nil {
+			log.Printf("job %s: could not requeue after a restart: %v", jobs[i].ID, err)
+
+			continue
+		}
+
+		log.Printf("job %s was cut off by a restart; its results so far are kept and it runs again", jobs[i].ID)
+	}
+}
+
 // backfill adds every finished job not yet in the lead list: the jobs run before the lead list
 // existed, and any whose ingest failed.
 func (w *webrunner) backfill(ctx context.Context) {
@@ -165,6 +195,7 @@ func (w *webrunner) backfill(ctx context.Context) {
 }
 
 func (w *webrunner) work(ctx context.Context) error {
+	w.requeueInterrupted(ctx)
 	w.backfill(ctx)
 
 	ticker := time.NewTicker(time.Second)

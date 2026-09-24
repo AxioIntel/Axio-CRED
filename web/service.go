@@ -55,7 +55,7 @@ func (s *Service) Update(ctx context.Context, job *Job) error {
 }
 
 func (s *Service) SelectPending(ctx context.Context) ([]Job, error) {
-	return s.repo.Select(ctx, SelectParams{Status: StatusPending, Limit: 1})
+	return s.repo.Select(ctx, SelectParams{Status: StatusPending, Limit: 1, Oldest: true})
 }
 
 // csvPath returns the on-disk path of a job's CSV output, rejecting ids that

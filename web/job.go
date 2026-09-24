@@ -18,6 +18,8 @@ const (
 type SelectParams struct {
 	Status string
 	Limit  int
+	// Oldest orders by creation time ascending: a queue runs in the order jobs were added.
+	Oldest bool
 }
 
 type JobRepository interface {

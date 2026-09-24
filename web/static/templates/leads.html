@@ -120,7 +120,7 @@
                 <select id="sh-step" style="width:auto;max-width:360px" hx-get="/saleshandy/steps" hx-trigger="load" hx-swap="innerHTML">
                     <option value="">Loading campaigns…</option>
                 </select>
-                <label class="check"><input type="checkbox" id="sh-verify" checked> Verify emails first</label>
+                <span class="faint" title="Enforced on the server">Only leads with an email and more than 50 Google reviews · every email verified by Saleshandy</span>
                 <label class="check"><input type="checkbox" id="sh-resend"> Resend already-sent</label>
                 <input type="text" id="sh-tag" placeholder="Extra tag (optional)" style="width:170px">
                 <div class="spacer"></div>
@@ -160,7 +160,6 @@
             scope: scope,
             tag: document.getElementById('sh-tag').value
         };
-        if (document.getElementById('sh-verify').checked) { values.verify = 'on'; }
         if (document.getElementById('sh-resend').checked) { values.resend = 'on'; }
         var where = step.options[step.selectedIndex].text;
         if (scope === 'ticked') {
@@ -171,7 +170,7 @@
         } else {
             new FormData(document.getElementById('lead-filters')).forEach(function (v, k) { values[k] = v; });
             var total = document.querySelector('.pager .muted');
-            if (!confirm('Send every lead matching the filters (' + (total ? total.textContent.trim() : '?') + ') to Saleshandy: ' + where + '?\n\nLeads without an email, marked do_not_contact, or already sent are skipped.')) { return; }
+            if (!confirm('Send every lead matching the filters (' + (total ? total.textContent.trim() : '?') + ') to Saleshandy: ' + where + '?\n\nLeads without an email, with 50 or fewer Google reviews, marked do_not_contact, or already sent are skipped. Saleshandy verifies every email.')) { return; }
         }
         document.getElementById('sh-result').innerHTML = '<div class="sh-result">Sending…</div>';
         htmx.ajax('POST', '/leads/saleshandy', { values: values, target: '#sh-result', swap: 'innerHTML' });

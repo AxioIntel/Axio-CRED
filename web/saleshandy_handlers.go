@@ -192,7 +192,9 @@ func (s *Server) saleshandySend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	opts := sendOptions{
-		verify: r.Form.Get("verify") == formOn,
+		// Always verified, whatever the page sent (owner's rule, 25 Sep 2026): Saleshandy checks
+		// every address before its campaign emails it.
+		verify: true,
 		resend: r.Form.Get("resend") == formOn,
 		tag:    r.Form.Get("tag"),
 	}
@@ -232,7 +234,9 @@ func (s *Server) sendToSaleshandy(ctx context.Context, rows []leads.Lead, all []
 
 	batches := map[string]*batch{}
 
-	var noEmail, dnc, already, noRoute int
+	var noEmail, fewReviews, dnc, already, noRoute int
+
+	floor := s.shConfig.ReviewFloor()
 
 	for i := range rows {
 		l := &rows[i]
@@ -240,6 +244,10 @@ func (s *Server) sendToSaleshandy(ctx context.Context, rows []leads.Lead, all []
 		switch {
 		case l.FirstEmail() == "":
 			noEmail++
+
+			continue
+		case l.Reviews < floor:
+			fewReviews++
 
 			continue
 		case l.Status == "do_not_contact":
@@ -275,8 +283,8 @@ func (s *Server) sendToSaleshandy(ctx context.Context, rows []leads.Lead, all []
 		b.ids = append(b.ids, l.ID)
 	}
 
-	res.Skipped = noEmail + dnc + already + noRoute
-	res.Why = skipReason(noEmail, dnc, already, noRoute)
+	res.Skipped = noEmail + fewReviews + dnc + already + noRoute
+	res.Why = skipReason(floor, noEmail, fewReviews, dnc, already, noRoute)
 
 	if len(batches) == 0 {
 		res.Err = "Nothing to send"
@@ -336,7 +344,7 @@ func (s *Server) sendToSaleshandy(ctx context.Context, rows []leads.Lead, all []
 	return res
 }
 
-func skipReason(noEmail, dnc, already, noRoute int) string {
+func skipReason(floor, noEmail, fewReviews, dnc, already, noRoute int) string {
 	var parts []string
 
 	for _, p := range []struct {
@@ -344,6 +352,7 @@ func skipReason(noEmail, dnc, already, noRoute int) string {
 		what string
 	}{
 		{noEmail, "without an email"},
+		{fewReviews, "with " + strconv.Itoa(floor-1) + " or fewer Google reviews"},
 		{dnc, "marked do_not_contact"},
 		{already, "already sent"},
 		{noRoute, "with no campaign for their category"},

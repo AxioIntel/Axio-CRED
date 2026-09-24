@@ -12,16 +12,34 @@ import (
 // send into a sequence outside the list.
 //
 //	{
-//	  "sequences": ["Dentists", "Orthodontists", "Dental Labs"],
-//	  "routes":    {"orthodont": "Orthodontists", "dental lab": "Dental Labs", "dent": "Dentists"}
+//	  "sequences":   ["Dentists", "Orthodontists", "Dental Labs"],
+//	  "routes":      {"orthodont": "Orthodontists", "dental lab": "Dental Labs", "dent": "Dentists"},
+//	  "min_reviews": 51
 //	}
 //
 // sequences are titles (or ids) exactly as in Saleshandy. A route sends a lead whose category
 // contains the key (case-insensitive) into that sequence's first step; the longest matching key
 // wins, so "orthodont" beats "dent" for an orthodontist.
+//
+// min_reviews is the fewest Google reviews a lead's listing must have to be sent at all; when the
+// file does not set it, DefaultMinReviews applies (the owner's rule of 25 Sep 2026: more than 50).
 type Config struct {
-	Sequences []string          `json:"sequences"`
-	Routes    map[string]string `json:"routes"`
+	Sequences  []string          `json:"sequences"`
+	Routes     map[string]string `json:"routes"`
+	MinReviews int               `json:"min_reviews"`
+}
+
+// DefaultMinReviews is the review floor when the config sets none: only businesses with more than
+// 50 Google reviews go to Saleshandy.
+const DefaultMinReviews = 51
+
+// ReviewFloor is the fewest reviews a lead needs to be sent.
+func (c *Config) ReviewFloor() int {
+	if c == nil || c.MinReviews <= 0 {
+		return DefaultMinReviews
+	}
+
+	return c.MinReviews
 }
 
 // ErrNoConfig means no sequences are allowed yet: nothing can be sent until the file lists them.

@@ -59,11 +59,12 @@ func shTestServer(t *testing.T) (*Server, *leads.Store, *fakeSaleshandy) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	csv := "input_id,link,title,category,phone,place_id,complete_address,emails\n" +
-		`q,https://m/1,Smile Dental,Dentist,+1 512-296-2841,P1,"{""city"":""Austin""}",info@smile.com` + "\n" +
-		`q,https://m/2,Straight Smiles,Orthodontist,,P2,"{""city"":""Austin""}",hello@straight.com` + "\n" +
-		`q,https://m/3,No Mail Dental,Dentist,,P3,"{""city"":""Austin""}",` + "\n" +
-		`q,https://m/4,Keys R Us,Locksmith,,P4,"{""city"":""Austin""}",keys@keys.com` + "\n"
+	csv := "input_id,link,title,category,phone,place_id,review_count,complete_address,emails\n" +
+		`q,https://m/1,Smile Dental,Dentist,+1 512-296-2841,P1,120,"{""city"":""Austin""}",info@smile.com` + "\n" +
+		`q,https://m/2,Straight Smiles,Orthodontist,,P2,80,"{""city"":""Austin""}",hello@straight.com` + "\n" +
+		`q,https://m/3,No Mail Dental,Dentist,,P3,200,"{""city"":""Austin""}",` + "\n" +
+		`q,https://m/4,Keys R Us,Locksmith,,P4,300,"{""city"":""Austin""}",keys@keys.com` + "\n" +
+		`q,https://m/5,Small Smiles,Dentist,,P5,50,"{""city"":""Austin""}",hi@small.com` + "\n"
 	p := filepath.Join(dir, "job.csv")
 	require.NoError(t, os.WriteFile(p, []byte(csv), 0o600))
 	_, err = store.IngestCSV(context.Background(), "job-1", p)
@@ -122,13 +123,15 @@ func TestAStepOutsideTheAllowedCampaignsIsRefused(t *testing.T) {
 func TestByCategoryRoutesEachLeadToItsCampaignAndSkipsTheRest(t *testing.T) {
 	srv, store, fake := shTestServer(t)
 
-	body := post(srv, url.Values{"step_id": {stepByCategory}, "scope": {"filtered"}, "verify": {"on"}, "tag": {"austin-test"}})
+	// No "verify" in the form: verification is not the page's choice.
+	body := post(srv, url.Values{"step_id": {stepByCategory}, "scope": {"filtered"}, "tag": {"austin-test"}})
 
 	assert.Contains(t, body, "Sent <strong>2</strong> leads")
 	assert.Contains(t, body, "Dentists: 1")
 	assert.Contains(t, body, "Orthodontists: 1")
 	assert.Contains(t, body, "1 without an email")
 	assert.Contains(t, body, "1 with no campaign for their category")
+	assert.Contains(t, body, "1 with 50 or fewer Google reviews", "Small Smiles has exactly 50")
 	require.Len(t, fake.imports, 2)
 
 	steps := map[string]any{}
@@ -136,7 +139,7 @@ func TestByCategoryRoutesEachLeadToItsCampaignAndSkipsTheRest(t *testing.T) {
 	for _, imp := range fake.imports {
 		stepID, _ := imp["stepId"].(string)
 		steps[stepID] = imp["prospectList"]
-		assert.Equal(t, true, imp["verifyProspects"])
+		assert.Equal(t, true, imp["verifyProspects"], "every import is verified by Saleshandy")
 		assert.Equal(t, []any{"AxioCRED", "austin-test"}, imp["tags"])
 	}
 
@@ -188,4 +191,10 @@ func itoa(n int64) string {
 	b, _ := json.Marshal(n)
 
 	return string(b)
+}
+
+func TestTheReviewFloorComesFromTheConfigAndDefaultsToMoreThanFifty(t *testing.T) {
+	assert.Equal(t, 51, (&saleshandy.Config{}).ReviewFloor())
+	assert.Equal(t, 51, (*saleshandy.Config)(nil).ReviewFloor())
+	assert.Equal(t, 100, (&saleshandy.Config{MinReviews: 100}).ReviewFloor())
 }
