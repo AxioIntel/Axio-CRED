@@ -166,3 +166,26 @@ func TestRerunQueuesAFinishedJobAndRefusesARunningOne(t *testing.T) {
 	assert.Equal(t, StatusPending, repo.jobs[done.ID].Status)
 	assert.Equal(t, http.StatusConflict, post(busy.ID))
 }
+
+func TestARunThatStartsOverIsNotANegativeRate(t *testing.T) {
+	srv, repo, dir := metricsServer(t)
+	ctx := context.Background()
+
+	job := Job{ID: "44444444-4444-4444-4444-444444444444", Status: StatusWorking, Data: JobData{Keywords: []string{"a"}, Depth: 5}}
+	require.NoError(t, repo.Create(ctx, &job))
+
+	path := filepath.Join(dir, job.ID+".csv")
+	t0 := time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)
+
+	require.NoError(t, os.WriteFile(path, []byte(rowsCSV(300)), 0o600))
+	srv.jobProgress(&job, t0)
+
+	// Restarted: the file starts over.
+	require.NoError(t, os.WriteFile(path, []byte(rowsCSV(5)), 0o600))
+	srv.jobProgress(&job, t0.Add(10*time.Second))
+
+	require.NoError(t, os.WriteFile(path, []byte(rowsCSV(65)), 0o600))
+	p := srv.jobProgress(&job, t0.Add(70*time.Second))
+
+	assert.InDelta(t, 60, p.RatePerMin, 0.01, "measured from the restart, not the old run")
+}

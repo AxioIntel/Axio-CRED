@@ -184,7 +184,9 @@ func (s *Server) jobProgress(job *Job, now time.Time) *JobProgress {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
-	if st.jobID != job.ID {
+	// A new job, or the same job run again after a restart (its results file starts over): the
+	// rate is measured afresh rather than against the old run's count.
+	if n := len(st.history); st.jobID != job.ID || (n > 0 && rows < st.history[n-1].rows) {
 		st.jobID, st.history, st.lastRow = job.ID, nil, now
 	}
 
