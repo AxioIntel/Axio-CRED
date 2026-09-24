@@ -18,6 +18,7 @@ import (
 	"github.com/AxioIntel/Axio-CRED/tlmt"
 	"github.com/AxioIntel/Axio-CRED/web"
 	"github.com/AxioIntel/Axio-CRED/web/leads"
+	"github.com/AxioIntel/Axio-CRED/web/saleshandy"
 	"github.com/AxioIntel/Axio-CRED/web/sqlite"
 	"github.com/gosom/scrapemate"
 	"github.com/gosom/scrapemate/adapters/writers/csvwriter"
@@ -64,7 +65,21 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 		return nil, err
 	}
 
-	srv, err := web.New(svc, cfg.Addr, web.WithLeads(leadStore))
+	// Saleshandy: the API key comes from the environment (the machine's env file), and the
+	// sequences leads may go into from saleshandy.json beside the jobs. Without a key the
+	// dashboard simply has no Saleshandy button.
+	shConfigPath := os.Getenv("SALESHANDY_CONFIG")
+	if shConfigPath == "" {
+		shConfigPath = filepath.Join(cfg.DataFolder, "saleshandy.json")
+	}
+
+	shConfig, err := saleshandy.LoadConfig(shConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("saleshandy config %s: %w", shConfigPath, err)
+	}
+
+	srv, err := web.New(svc, cfg.Addr, web.WithLeads(leadStore),
+		web.WithSaleshandy(saleshandy.New(os.Getenv("SALESHANDY_API_KEY")), shConfig))
 	if err != nil {
 		return nil, err
 	}

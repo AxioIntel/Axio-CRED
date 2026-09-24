@@ -37,7 +37,7 @@
                 <input class="note" type="text" name="note" value="{{.Note}}" placeholder="Add a note" aria-label="Note on {{.Name}}"
                        hx-post="/leads/note" hx-vals='{"id": "{{.ID}}"}' hx-swap="none" hx-trigger="change">
             </td>
-            <td class="nowrap faint">{{.LastSeen.Format "Jan 2"}}{{if gt .Jobs 1}}<div>{{.Jobs}} jobs</div>{{end}}</td>
+            <td class="nowrap faint">{{.LastSeen.Format "Jan 2"}}{{if gt .Jobs 1}}<div>{{.Jobs}} jobs</div>{{end}}{{if not .SaleshandyAt.IsZero}}<div><span class="chip" title="Sent {{.SaleshandyAt.Format "Jan 2 15:04"}} UTC">Saleshandy: {{.SaleshandySequence}}</span></div>{{end}}</td>
         </tr>
     {{else}}
         <tr><td colspan="10" class="empty">No leads match. Run a job on the Scrape tab, or loosen the filters.</td></tr>

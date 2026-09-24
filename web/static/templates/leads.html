@@ -13,6 +13,7 @@
         <nav class="tabs">
             <a href="/">Scrape</a>
             <a href="/leads" class="active">Leads</a>
+            <a href="/spec">AxioIntel spec</a>
         </nav>
         <div class="spacer"></div>
         <a class="small-link" href="/api/docs" target="_blank" rel="noopener noreferrer">API</a>
@@ -87,6 +88,11 @@
                         <label class="check"><input type="checkbox" name="has_email" {{if .Filter.HasEmail}}checked{{end}}> Has email</label>
                         <label class="check"><input type="checkbox" name="has_phone" {{if .Filter.HasPhone}}checked{{end}}> Has phone</label>
                         <label class="check"><input type="checkbox" name="has_website" {{if .Filter.HasWebsite}}checked{{end}}> Has website</label>
+                        <select name="saleshandy" style="width:auto">
+                            <option value="">Saleshandy: any</option>
+                            <option value="not_sent">Not sent yet</option>
+                            <option value="sent">Already sent</option>
+                        </select>
                         <select name="source" style="width:auto">
                             <option value="">All sources</option>
                             <option value="google_maps">Google Maps</option>
@@ -108,6 +114,20 @@
                 <button class="btn btn-sm" type="button" onclick="exportLeads('csv')">CSV</button>
                 <button class="btn btn-sm" type="button" onclick="exportLeads('xlsx')">Excel</button>
             </div>
+
+            <div class="toolbar sh-bar">
+                <strong>Saleshandy</strong>
+                <select id="sh-step" style="width:auto;max-width:360px" hx-get="/saleshandy/steps" hx-trigger="load" hx-swap="innerHTML">
+                    <option value="">Loading campaigns…</option>
+                </select>
+                <label class="check"><input type="checkbox" id="sh-verify" checked> Verify emails first</label>
+                <label class="check"><input type="checkbox" id="sh-resend"> Resend already-sent</label>
+                <input type="text" id="sh-tag" placeholder="Extra tag (optional)" style="width:170px">
+                <div class="spacer"></div>
+                <button class="btn btn-sm" type="button" onclick="sendSaleshandy('ticked')">Send ticked</button>
+                <button class="btn btn-sm btn-primary" type="button" onclick="sendSaleshandy('filtered')">Send all matching filters</button>
+            </div>
+            <div id="sh-result" class="sh-result-wrap"></div>
 
             <div id="leads-table" hx-get="/leads/table" hx-include="#lead-filters" hx-trigger="load">
                 <div class="empty">Loading…</div>
@@ -131,6 +151,30 @@
         htmx.ajax('POST', '/leads/status', { values: values, swap: 'none' }).then(function () {
             htmx.trigger(document.body, 'leads-changed');
         });
+    }
+    function sendSaleshandy(scope) {
+        var step = document.getElementById('sh-step');
+        if (!step.value) { alert('Choose a campaign first.'); return; }
+        var values = {
+            step_id: step.value,
+            scope: scope,
+            tag: document.getElementById('sh-tag').value
+        };
+        if (document.getElementById('sh-verify').checked) { values.verify = 'on'; }
+        if (document.getElementById('sh-resend').checked) { values.resend = 'on'; }
+        var where = step.options[step.selectedIndex].text;
+        if (scope === 'ticked') {
+            var ids = Array.prototype.map.call(document.querySelectorAll('input.pick:checked'), function (c) { return c.value; });
+            if (ids.length === 0) { alert('Tick at least one lead first.'); return; }
+            values.id = ids;
+            if (!confirm('Send ' + ids.length + ' ticked lead(s) to Saleshandy: ' + where + '?')) { return; }
+        } else {
+            new FormData(document.getElementById('lead-filters')).forEach(function (v, k) { values[k] = v; });
+            var total = document.querySelector('.pager .muted');
+            if (!confirm('Send every lead matching the filters (' + (total ? total.textContent.trim() : '?') + ') to Saleshandy: ' + where + '?\n\nLeads without an email, marked do_not_contact, or already sent are skipped.')) { return; }
+        }
+        document.getElementById('sh-result').innerHTML = '<div class="sh-result">Sending…</div>';
+        htmx.ajax('POST', '/leads/saleshandy', { values: values, target: '#sh-result', swap: 'innerHTML' });
     }
     function toggleAll(box) {
         document.querySelectorAll('input.pick').forEach(function (c) { c.checked = box.checked; });

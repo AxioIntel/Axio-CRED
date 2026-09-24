@@ -21,16 +21,19 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/AxioIntel/Axio-CRED/web/leads"
+	"github.com/AxioIntel/Axio-CRED/web/saleshandy"
 )
 
 //go:embed static
 var static embed.FS
 
 type Server struct {
-	tmpl  map[string]*template.Template
-	srv   *http.Server
-	svc   *Service
-	leads *leads.Store
+	tmpl       map[string]*template.Template
+	srv        *http.Server
+	svc        *Service
+	leads      *leads.Store
+	saleshandy *saleshandy.Client
+	shConfig   *saleshandy.Config
 }
 
 func New(svc *Service, addr string, opts ...Option) (*Server, error) {
@@ -60,6 +63,10 @@ func New(svc *Service, addr string, opts ...Option) (*Server, error) {
 	mux := http.NewServeMux()
 
 	ans.registerLeadRoutes(mux)
+	ans.registerSaleshandyRoutes(mux)
+	mux.HandleFunc("GET /spec", func(w http.ResponseWriter, _ *http.Request) {
+		ans.render(w, "static/templates/spec.html", nil)
+	})
 
 	mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
 	mux.HandleFunc("/scrape", ans.scrape)
@@ -145,6 +152,7 @@ func New(svc *Service, addr string, opts ...Option) (*Server, error) {
 		"static/templates/redoc.html",
 		"static/templates/leads.html",
 		"static/templates/leads_table.html",
+		"static/templates/spec.html",
 	}
 
 	for _, key := range tmplsKeys {

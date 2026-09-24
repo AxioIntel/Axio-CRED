@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The lead-finding dashboard: Axio-CRED's own web UI (the collector's -web mode) on the collector's
-# machine. Type searches, tick "email", run, and download each job's results as CSV.
+# machine: Scrape, Leads (with Saleshandy) and the AxioIntel spec.
 #
 # It listens on this machine's localhost only and has no login, so it is never reachable from the
 # internet: open it through an SSH tunnel from your own computer --
@@ -15,6 +15,12 @@
 #   LEADS_DATA_DIR   jobs, results and the dashboard's database; default /var/lib/axio-leads
 #   LEADS_PORT       default 8080 (bound to 127.0.0.1 only)
 #   AXIO_CRED_DIR    the repository checkout; default /opt/axio-cred
+#   LEADS_ENV_FILE   secrets for the dashboard; default /etc/axiointel/leads.env (root:docker, 640)
+#                    SALESHANDY_API_KEY=...   turns on "Send to Saleshandy"
+#
+# Which Saleshandy campaigns leads may go into is $LEADS_DATA_DIR/saleshandy.json:
+#     {"sequences": ["<campaign title>", ...], "routes": {"<category word>": "<campaign title>"}}
+# Nothing can be sent until it lists at least one. After changing either file: restart.
 set -euo pipefail
 
 IMAGE="${LEADS_IMAGE:-axio-cred-collector}"
@@ -22,14 +28,17 @@ DATA="${LEADS_DATA_DIR:-/var/lib/axio-leads}"
 PORT="${LEADS_PORT:-8080}"
 REPO="${AXIO_CRED_DIR:-/opt/axio-cred}"
 NAME=axio-leads
+ENV_FILE="${LEADS_ENV_FILE:-/etc/axiointel/leads.env}"
 
 start() {
   sudo mkdir -p "$DATA"
   if docker ps -a --format '{{.Names}}' | grep -qx "$NAME"; then
     docker start "$NAME" >/dev/null
   else
+    env_args=()
+    [ -r "$ENV_FILE" ] && env_args=(--env-file "$ENV_FILE")
     docker run -d --name "$NAME" --restart unless-stopped \
-      -e DISABLE_TELEMETRY=1 \
+      -e DISABLE_TELEMETRY=1 ${env_args[@]+"${env_args[@]}"} \
       -p "127.0.0.1:$PORT:8080" \
       -v "$DATA:/data" \
       "$IMAGE" -web -data-folder /data -addr :8080 >/dev/null

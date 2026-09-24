@@ -58,6 +58,10 @@ type Lead struct {
 	FirstSeen time.Time
 	LastSeen  time.Time
 	Jobs      int
+	// SaleshandyAt is when the lead was last sent into a Saleshandy sequence; zero if never.
+	SaleshandyAt time.Time
+	// SaleshandySequence is the sequence it was sent into.
+	SaleshandySequence string
 }
 
 // FirstEmail is the address outreach should use.
@@ -95,7 +99,41 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("lead schema: %w", err)
 	}
 
+	if err := addColumn(db, "leads", "saleshandy_sequence", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		_ = db.Close()
+
+		return nil, err
+	}
+
 	return &Store{db: db}, nil
+}
+
+// addColumn adds a column to a table that predates it; a no-op when it is already there.
+func addColumn(db *sql.DB, table, column, decl string) error {
+	rows, err := db.Query("SELECT name FROM pragma_table_info(?)", table)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+
+		if name == column {
+			return nil
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	_, err = db.Exec("ALTER TABLE " + table + " ADD COLUMN " + column + " " + decl)
+
+	return err
 }
 
 // Close closes the database.
@@ -137,6 +175,14 @@ CREATE TABLE IF NOT EXISTS lead_jobs (
 	PRIMARY KEY (lead_id, job_id)
 );
 CREATE INDEX IF NOT EXISTS lead_jobs_job ON lead_jobs (job_id);
+CREATE TABLE IF NOT EXISTS saleshandy_pushes (
+	id INTEGER PRIMARY KEY,
+	request_id TEXT NOT NULL,
+	sequence TEXT NOT NULL,
+	step_id TEXT NOT NULL,
+	prospects INTEGER NOT NULL,
+	at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ingested_jobs (
 	job_id TEXT PRIMARY KEY,
 	rows INTEGER NOT NULL,
@@ -190,6 +236,8 @@ type Filter struct {
 	City       string
 	Category   string
 	JobID      string
+	IDs        []int64 // only these leads
+	Saleshandy string  // "sent", "not_sent", or "" for either
 	HasEmail   bool
 	HasPhone   bool
 	HasWebsite bool
@@ -231,6 +279,21 @@ func (f *Filter) where() (clause string, args []any) {
 	if f.JobID != "" {
 		conds = append(conds, "id IN (SELECT lead_id FROM lead_jobs WHERE job_id = ?)")
 		args = append(args, f.JobID)
+	}
+
+	if len(f.IDs) > 0 {
+		conds = append(conds, "id IN ("+strings.TrimSuffix(strings.Repeat("?,", len(f.IDs)), ",")+")")
+
+		for _, id := range f.IDs {
+			args = append(args, id)
+		}
+	}
+
+	switch f.Saleshandy {
+	case "sent":
+		conds = append(conds, "saleshandy_at > 0")
+	case "not_sent":
+		conds = append(conds, "saleshandy_at = 0")
 	}
 
 	if f.HasEmail {
@@ -277,19 +340,24 @@ func (f *Filter) orderBy() string {
 
 const leadColumns = `id, source, source_id, name, category, phone, emails, website, address, city, state,
 	country, rating, reviews, link, query, status, note, status_at, first_seen, last_seen,
-	(SELECT count(*) FROM lead_jobs WHERE lead_id = leads.id)`
+	saleshandy_at, saleshandy_sequence, (SELECT count(*) FROM lead_jobs WHERE lead_id = leads.id)`
 
 func scanLead(sc interface{ Scan(...any) error }) (Lead, error) {
 	var (
-		l                             Lead
-		statusAt, firstSeen, lastSeen int64
+		l                                           Lead
+		statusAt, firstSeen, lastSeen, saleshandyAt int64
 	)
 
 	err := sc.Scan(&l.ID, &l.Source, &l.SourceID, &l.Name, &l.Category, &l.Phone, &l.Emails,
 		&l.Website, &l.Address, &l.City, &l.State, &l.Country, &l.Rating, &l.Reviews, &l.Link,
-		&l.Query, &l.Status, &l.Note, &statusAt, &firstSeen, &lastSeen, &l.Jobs)
+		&l.Query, &l.Status, &l.Note, &statusAt, &firstSeen, &lastSeen, &saleshandyAt,
+		&l.SaleshandySequence, &l.Jobs)
 	if err != nil {
 		return l, err
+	}
+
+	if saleshandyAt > 0 {
+		l.SaleshandyAt = time.Unix(saleshandyAt, 0).UTC()
 	}
 
 	if statusAt > 0 {
@@ -434,4 +502,35 @@ func (s *Store) Ingested(ctx context.Context, jobID string) (bool, error) {
 	err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM ingested_jobs WHERE job_id = ?", jobID).Scan(&n)
 
 	return n > 0, err
+}
+
+// MarkSaleshandy records that leads were sent into a Saleshandy sequence by one import request.
+func (s *Store) MarkSaleshandy(ctx context.Context, ids []int64, requestID, sequence, stepID string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = tx.Rollback() }()
+
+	now := time.Now().UTC().Unix()
+
+	_, err = tx.ExecContext(ctx, `INSERT INTO saleshandy_pushes (request_id, sequence, step_id, prospects, at)
+		VALUES (?, ?, ?, ?, ?)`, requestID, sequence, stepID, len(ids), now)
+	if err != nil {
+		return err
+	}
+
+	for _, id := range ids {
+		_, err = tx.ExecContext(ctx, "UPDATE leads SET saleshandy_at = ?, saleshandy_sequence = ? WHERE id = ?", now, sequence, id)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }

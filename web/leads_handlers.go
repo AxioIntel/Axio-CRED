@@ -40,6 +40,7 @@ func filterFromQuery(q url.Values) leads.Filter {
 		City:       q.Get("city"),
 		Category:   q.Get("category"),
 		JobID:      q.Get("job"),
+		Saleshandy: q.Get("saleshandy"),
 		HasEmail:   q.Get("has_email") == formOn,
 		HasPhone:   q.Get("has_phone") == formOn,
 		HasWebsite: q.Get("has_website") == formOn,
