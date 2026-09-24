@@ -13,6 +13,22 @@ list, and this machine decides on its own clock what to do with it.
 Nothing here reports, flags or appeals a review. The collector reads public pages. AxioIntel
 stores what arrives and never treats it as proof that anyone owns a place.
 
+## Lab mode first (the default)
+
+Until the collector has proved itself, it runs apart from AxioIntel (owner's decision,
+24 Sep 2026). `COLLECTOR_MODE` is `lab` unless set otherwise. In lab mode `collect.sh`:
+
+- collects only the places file you give it (`collect.sh places.txt`, or `COLLECTOR_PLACES_FILE`);
+- never asks AxioIntel for targets and never sends it anything, so it needs no secret, and
+  `push_native.py` and `fetch_targets.py` need not be on the machine;
+- keeps every collection in `<work>/<place>/<time>/results.jsonl` and adds one line per place to
+  `<work>/lab/summary.csv` (collected, reported, complete or partial, why it stopped, rotations,
+  blocks, seconds).
+
+That summary, compared with Apify's pulls of the same places, is what decides whether AxioIntel
+starts relying on the collector. Only then is `COLLECTOR_MODE=send` set, the secret written, and
+the rest of this page's sending setup applied. `find_emails.sh` never sends anything, in either mode.
+
 ## Where it runs
 
 On a machine that has **no link to AxioIntel's Google Cloud project**: its own provider
