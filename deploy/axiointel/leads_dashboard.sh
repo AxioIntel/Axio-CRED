@@ -17,6 +17,9 @@
 #   AXIO_CRED_DIR    the repository checkout; default /opt/axio-cred
 #   LEADS_ENV_FILE   secrets for the dashboard; default /etc/axiointel/leads.env (root:docker, 640)
 #                    SALESHANDY_API_KEY=...   turns on "Send to Saleshandy"
+#   LEADS_PROXIES    proxies for Google; default /etc/axiointel/proxies.txt (root:docker, 640), one
+#                    http://user:pass@host:port per line. When present, every job's Google traffic
+#                    goes through them; business websites (emails) are always fetched directly.
 #
 # Which Saleshandy campaigns leads may go into is $LEADS_DATA_DIR/saleshandy.json:
 #     {"sequences": ["<campaign title>", ...], "routes": {"<category word>": "<campaign title>"}}
@@ -29,6 +32,7 @@ PORT="${LEADS_PORT:-8080}"
 REPO="${AXIO_CRED_DIR:-/opt/axio-cred}"
 NAME=axio-leads
 ENV_FILE="${LEADS_ENV_FILE:-/etc/axiointel/leads.env}"
+PROXIES="${LEADS_PROXIES:-/etc/axiointel/proxies.txt}"
 
 start() {
   sudo mkdir -p "$DATA"
@@ -37,11 +41,18 @@ start() {
   else
     env_args=()
     [ -r "$ENV_FILE" ] && env_args=(--env-file "$ENV_FILE")
+    proxy_mount=()
+    proxy_flag=()
+    if [ -r "$PROXIES" ] && [ -s "$PROXIES" ]; then
+      proxy_mount=(-v "$PROXIES:/run/proxies.txt:ro")
+      proxy_flag=(-proxies-file /run/proxies.txt)
+    fi
     docker run -d --name "$NAME" --restart unless-stopped \
       -e DISABLE_TELEMETRY=1 ${env_args[@]+"${env_args[@]}"} \
       -p "127.0.0.1:$PORT:8080" \
-      -v "$DATA:/data" \
-      "$IMAGE" -web -data-folder /data -addr :8080 >/dev/null
+      -v "$DATA:/data" ${proxy_mount[@]+"${proxy_mount[@]}"} \
+      "$IMAGE" -web -data-folder /data -addr :8080 ${proxy_flag[@]+"${proxy_flag[@]}"} >/dev/null
+    [ ${#proxy_flag[@]} -gt 0 ] && echo "using $(grep -c . "$PROXIES") proxies for Google"
   fi
   echo "dashboard running on this machine's localhost:$PORT"
   echo "from your computer: ssh -L $PORT:localhost:$PORT axio-collector   then open http://localhost:$PORT"
