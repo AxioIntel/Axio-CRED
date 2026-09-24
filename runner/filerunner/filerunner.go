@@ -238,9 +238,10 @@ func (r *fileRunner) setApp() error {
 			opts = append(opts, scrapemateapp.WithJS(
 				scrapemateapp.Headfull(),
 				scrapemateapp.DisableImages(),
+				scrapemateapp.WithUA(gmaps.BrowserUserAgent),
 			))
 		} else {
-			opts = append(opts, scrapemateapp.WithJS(scrapemateapp.DisableImages()))
+			opts = append(opts, scrapemateapp.WithJS(scrapemateapp.DisableImages(), scrapemateapp.WithUA(gmaps.BrowserUserAgent)))
 		}
 	} else {
 		opts = append(opts, scrapemateapp.WithStealth("firefox"))

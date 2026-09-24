@@ -19,6 +19,11 @@ var reviewUserAgents = []string{
 	"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
 }
 
+// BrowserUserAgent is what the collector's browser presents, from the same Chrome family as the
+// HTTP identities, instead of scrapemate's hard-coded Chrome 91 -- a years-old browser is its own
+// signal to a site deciding whether to refuse.
+var BrowserUserAgent = reviewUserAgents[0]
+
 // reviewIdentity is one way of looking like one visitor: a proxy, a user agent, and -- once it has
 // made a request -- that visitor's cookies. All of it is replaced together on a rotation; nothing
 // is carried from one identity to the next, so Google never sees one visitor's cookies arrive from

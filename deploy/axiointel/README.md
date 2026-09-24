@@ -95,6 +95,17 @@ Google rate-limits a single datacenter IP address that loads many listings. Put 
 per line in a root-owned file and set `COLLECTOR_PROXIES_FILE=/etc/axiointel/proxies.txt` in
 `collector.env`. The log is scrubbed of proxy credentials after every run.
 
+Use ISP or residential proxies, five to ten of them. Google refuses datacenter addresses on the
+review endpoint (a 403 on every page), which is what the coverage audit of 9 September 2026 saw.
+
+With proxies set, every review request goes through one. The browser takes the first proxy. The
+collector's own review requests start at the second and move to the next whenever Google refuses
+one (a 403, a 429, a `/sorry/` page or a CAPTCHA), asking for the same page again. Each proxy keeps
+its own browser signature, user agent and cookies, and nothing carries over from one to the next.
+When every proxy has been refused, the collector scrolls the public page for whatever is left,
+and reports `blocked` if that falls short too. A proxy line that does not parse turns the review
+requests off altogether: the collector never falls back to this machine's own address.
+
 ## What it collects
 
 `collect.sh` asks AxioIntel, every run, which places it is watching: every public place a
@@ -120,6 +131,36 @@ When the collector times out or exits with an error, whatever it gathered is sti
 marked incomplete. AxioIntel then stores those reviews without treating the ones it lacks as
 removed. When the collector finds fewer distinct reviews than the listing shows, the sender
 also marks the collection incomplete, and for the same reason.
+
+The collector also reports on each place itself, as `review_collection` in `results.jsonl`, and
+`collect.sh` logs it as one line:
+
+```
+2026-09-25T02:41:07Z ChIJ...: 1169/1169 reviews, complete (done, stage -, 1 rotation(s), 1 block(s))
+```
+
+Anything it does not call complete is sent as incomplete, even when the container exited cleanly.
+`stop_reason` says why it stopped:
+
+| `stop_reason` | Meaning |
+| --- | --- |
+| `done` | Every page was read, and the reviews reach the listing's count. |
+| `exhausted` | The listing ran out of pages short of its count. Google's count includes reviews it does not show. |
+| `blocked` | Google refused every proxy, and scrolling the public page did not make up the rest. |
+| `budget` | The collector's own clock ran out. What it had is kept. |
+| `cap` | The most reviews one place keeps was reached (`-review-max`, default 5,000). |
+| `parse_error` | Google changed the shape of its review pages. Rotating proxies does not fix this; the parser needs updating. |
+| `count_unknown` | The listing's review count could not be read, although it shows reviews. Never complete. |
+| `no_reviews` | The listing has no reviews. |
+
+## Sizing the time budgets
+
+Two clocks apply. `COLLECTOR_TIMEOUT_SECONDS` (default 1200) is when `collect.sh` kills the
+container. The collector's own review clock, `-review-budget`, is set four minutes under it, so
+that a slow place is still written out as a partial collection rather than killed and lost. At
+the default pace a place takes roughly a second per 20 reviews: about 3 minutes for 1,169 reviews
+and 11 minutes for 5,000. For a listing over about 5,000 reviews, raise `COLLECTOR_TIMEOUT_SECONDS`;
+the review clock follows. Pass `-review-max` to the image as well to keep more than 5,000 per place.
 
 ## Exit status
 

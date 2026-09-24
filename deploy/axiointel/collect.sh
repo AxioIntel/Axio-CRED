@@ -21,7 +21,10 @@
 #   COLLECTOR_PLACES_FILE            collect this list instead of asking AxioIntel
 #   COLLECTOR_IMAGE                  docker image built from this repository; default axio-cred-collector
 #   COLLECTOR_PROXIES_FILE           optional; one proxy URL per line, passed as -proxies-file
-#   COLLECTOR_TIMEOUT_SECONDS        per place; default 1200, Axio-CRED's own full-review budget
+#   COLLECTOR_TIMEOUT_SECONDS        per place; default 1200, Axio-CRED's own full-review budget.
+#                                    The collector's own review clock (-review-budget) is set four
+#                                    minutes under it, so a slow place is written out partial rather
+#                                    than killed and lost. Raise this for listings over ~5,000 reviews.
 #   COLLECTOR_WORK_DIR               default /var/lib/axiointel-collector
 #   COLLECTOR_KEEP_DAYS              local results kept this long; default 14
 #
@@ -62,6 +65,18 @@ mkdir -p "$WORK"
 # budget and an IP address with it.
 exec 9>"$WORK/.lock"
 flock -n 9 || { echo "a collection is already running; skipping this one"; exit 0; }
+
+# The collector's review clock sits under this script's kill, so a slow place ends as a partial
+# collection that is still written out, rather than a killed container that wrote nothing. Only an
+# image built with the review collector knows the flag; an older one is run as before.
+REVIEW_FLAGS=()
+if docker run --rm "$IMAGE" -h 2>&1 | grep -q -- -review-budget; then
+  if [ "$TIMEOUT" -gt 300 ]; then
+    REVIEW_FLAGS=(-review-budget "$((TIMEOUT - 240))s")
+  else
+    REVIEW_FLAGS=(-review-budget "$((TIMEOUT * 4 / 5))s")
+  fi
+fi
 
 # Results hold reviewers' names and words. They are needed only until AxioIntel has them.
 find "$WORK" -mindepth 2 -maxdepth 2 -type d -mtime "+$KEEP_DAYS" -exec rm -rf {} + 2>/dev/null
@@ -114,7 +129,7 @@ while read -r place purpose _; do
       ${proxy[@]+"${proxy[@]}"} "$IMAGE" \
       -input /work/query.txt -results /work/results.jsonl -json -lang en -depth 1 -zoom 15 \
       -c 1 -browser-pool-size 1 -pages-per-browser 1 -extra-reviews \
-      ${proxy_flag[@]+"${proxy_flag[@]}"} \
+      ${REVIEW_FLAGS[@]+"${REVIEW_FLAGS[@]}"} ${proxy_flag[@]+"${proxy_flag[@]}"} \
     > "$run/collector.log" 2>&1
   code=$?
   elapsed=$(( $(date +%s) - started ))
@@ -137,6 +152,44 @@ while read -r place purpose _; do
     # not the whole list, and AxioIntel must not treat the reviews it lacks as removed.
     stopped=(--incomplete)
     echo "$(date -u +%FT%TZ) collector exit $code for $place; sending what it collected as incomplete" >&2
+  fi
+
+  # What the collector says about its own coverage (`review_collection` in the results). A
+  # collection it does not call complete -- blocked, out of budget, a listing that ran short, a
+  # count it could not read -- is sent as incomplete even when the container exited cleanly: the
+  # sender's own check compares against the listing's count, and cannot see an unread one.
+  coverage=$(python3 - "$run/results.jsonl" <<'PY'
+import json, sys
+found = None
+with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
+    for line in fh:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        report = entry.get("review_collection") if isinstance(entry, dict) else None
+        if isinstance(report, dict):
+            found = report
+if found is None:
+    print("missing")
+else:
+    print(" ".join(str(v) for v in (
+        "complete" if found.get("complete") else "partial",
+        found.get("collected", 0), found.get("reported", 0),
+        found.get("stop_reason") or "-", found.get("stop_stage") or "-",
+        found.get("identity_rotations", 0), found.get("blocks", 0))))
+PY
+)
+  read -r cov_state cov_collected cov_reported cov_reason cov_stage cov_rotations cov_blocks \
+    <<<"$coverage"
+  if [ "$cov_state" = "missing" ]; then
+    echo "$(date -u +%FT%TZ) $place: no coverage report (an image built before the review collector)"
+  else
+    echo "$(date -u +%FT%TZ) $place: $cov_collected/$cov_reported reviews, $cov_state" \
+      "($cov_reason, stage $cov_stage, $cov_rotations rotation(s), $cov_blocks block(s))"
+    if [ "$cov_state" = "partial" ] && [ ${#stopped[@]} -eq 0 ]; then
+      stopped=(--incomplete)
+    fi
   fi
   # AxioIntel compares the collector with pulls made from the dashboard on speed. Older copies
   # of the sender do not know the flag, so it is passed only to one that does.
