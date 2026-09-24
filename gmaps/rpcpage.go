@@ -38,6 +38,7 @@ var (
 // which of the four ways a page can be unreadable this one was.
 func parseRPCPage(body []byte) (rpcPage, error) {
 	text := string(body)
+
 	switch {
 	case strings.HasPrefix(text, ")]}'\n"):
 		text = text[len(")]}'\n"):]
@@ -51,12 +52,14 @@ func parseRPCPage(body []byte) (rpcPage, error) {
 	if err := json.Unmarshal([]byte(text), &jd); err != nil {
 		return rpcPage{}, errRPCNotJSON
 	}
+
 	if len(jd) < 3 {
 		return rpcPage{}, errRPCShape
 	}
 
 	itemsI := getNthElementAndCast[[]any](jd, 2)
 	reviews := parseReviews(itemsI)
+
 	if len(itemsI) > 0 && len(reviews) == 0 {
 		return rpcPage{}, errRPCParsedNothing
 	}

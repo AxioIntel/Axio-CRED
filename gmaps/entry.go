@@ -326,12 +326,14 @@ func (e *Entry) AddExtraReviews(pages [][]byte) {
 	}
 
 	set := newReviewSet(e.UserReviews, defaultReviewCap)
+
 	for _, page := range pages {
 		p, err := parseRPCPage(page)
 		if err != nil {
 			log.Printf("DEBUG: rpc page not added: %v (data len: %d)", err, len(page))
 			continue
 		}
+
 		set.addPage(p)
 	}
 

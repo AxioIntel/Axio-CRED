@@ -72,6 +72,7 @@ func (r *ReviewCollection) finalize(collected int) {
 		r.StopStage = ""
 		r.StopDetail = ""
 	}
+
 	r.Complete = (r.StopReason == stopDone && r.ReportedKnown && collected >= r.Reported) ||
 		(r.StopReason == stopNoReviews && collected == 0)
 }

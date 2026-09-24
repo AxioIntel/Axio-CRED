@@ -1,3 +1,4 @@
+//nolint:testpackage // tests the review collector's unexported internals
 package gmaps
 
 import (

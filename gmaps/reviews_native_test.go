@@ -50,7 +50,7 @@ func TestNativePrimaryEnrichmentBeforeDeduplication(t *testing.T) {
 	// post time, survives enrichment untouched.
 	primary := []Review{{ReviewID: "same", Name: "A", Description: "Short", PostedAtUnixMicros: 1700000000000000}}
 	set := newReviewSet(primary, 0)
-	added := set.add(Review{ReviewID: "same", Description: "A longer expanded review",
+	added := set.add(&Review{ReviewID: "same", Description: "A longer expanded review",
 		AuthorURL: "https://www.google.com/maps/contrib/123", ReplyText: "Owner reply"})
 	assert.False(t, added)
 	assert.Empty(t, set.extended())

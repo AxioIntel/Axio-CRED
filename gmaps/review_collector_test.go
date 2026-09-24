@@ -1,3 +1,4 @@
+//nolint:testpackage // tests the review collector's unexported internals
 package gmaps
 
 import (
@@ -22,9 +23,11 @@ func reviewEl(t *testing.T, id string) any {
 
 	// The endpoint wraps each review once: item[0] is the review element, whose [0] is its id.
 	var item []any
+
 	require.NoError(t, json.Unmarshal(raw, &item))
 	el, ok := item[0].([]any)
 	require.True(t, ok, "fixture item is not wrapped the way the endpoint wraps it")
+
 	el[0] = id
 
 	return item
@@ -66,7 +69,9 @@ func (f *scriptedFetcher) fetchPage(_ context.Context, url string) (rpcResponse,
 	if len(queue) == 0 {
 		return rpcResponse{}, errors.New("unscripted " + url)
 	}
+
 	next := queue[0]
+
 	if len(queue) > 1 {
 		f.steps[url] = queue[1:]
 	}
@@ -102,20 +107,23 @@ func collector(cfg ReviewConfig, browser, http rpcFetcher, dom domExtractor) (*r
 
 func ids(rows []Review) []string {
 	out := make([]string, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, r.ReviewID)
+	for i := range rows {
+		out = append(out, rows[i].ReviewID)
 	}
+
 	return out
 }
 
 // settle is what `PlaceJob.Process` does: merge against the inline reviews, finalize.
-func settle(res reviewResult, primary []Review) ReviewCollection {
+func settle(res *reviewResult, primary []Review) ReviewCollection {
 	set := newReviewSet(primary, 0)
-	for _, r := range res.Rows {
-		set.add(r)
+	for i := range res.Rows {
+		set.add(&res.Rows[i])
 	}
+
 	report := res.Report
 	report.finalize(set.distinct())
+
 	return report
 }
 
@@ -159,10 +167,14 @@ func TestABlockMidwayIsMadeUpByTheDOM(t *testing.T) {
 		"tok:":   {{resp: page(t, "t2", "r1", "r2")}},
 		"tok:t2": {{resp: rpcResponse{Status: 403}}},
 	}}
+
 	var target int
+
 	dom := func(_ context.Context, known *reviewSet, tgt, _ int) []DOMReview {
 		target = tgt
+
 		assert.True(t, known.has("r1"), "DOM is told what RPC already found")
+
 		return []DOMReview{{ReviewID: "r2"}, {ReviewID: "r3"}, {ReviewID: "r4"}}
 	}
 	c, _, _ := collector(ReviewConfig{}, browser, nil, dom)

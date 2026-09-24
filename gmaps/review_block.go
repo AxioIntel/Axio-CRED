@@ -35,10 +35,11 @@ var blockMarkers = []string{"unusual traffic", "/sorry/", "g-recaptcha", "captch
 // classifyRPC reads one response as ok, blocked, transient or invalid, with a short detail safe to
 // write into the results. It never reads a 200 as ok on the status alone: a block page is often
 // served with 200, and only the body tells them apart.
-func classifyRPC(resp rpcResponse, err error) (rpcVerdict, string) {
+func classifyRPC(resp rpcResponse, err error) (verdict rpcVerdict, detail string) {
 	if err != nil {
 		return verdictTransient, scrubDetail(err.Error())
 	}
+
 	if strings.Contains(resp.FinalURL, "/sorry/") {
 		return verdictBlocked, "redirected to Google's /sorry/ page"
 	}
@@ -55,17 +56,20 @@ func classifyRPC(resp rpcResponse, err error) (rpcVerdict, string) {
 	if len(resp.Body) < 10 {
 		return verdictInvalid, "empty body"
 	}
+
 	if !bytes.HasPrefix(resp.Body, []byte(")]}'")) {
 		head := resp.Body
 		if len(head) > 64<<10 {
 			head = head[:64<<10]
 		}
+
 		lower := strings.ToLower(string(head))
 		for _, marker := range blockMarkers {
 			if strings.Contains(lower, marker) {
 				return verdictBlocked, "block page (" + marker + ")"
 			}
 		}
+
 		return verdictInvalid, "not a reviews response"
 	}
 
@@ -81,5 +85,6 @@ func scrubDetail(detail string) string {
 	if len(detail) > 200 {
 		detail = detail[:200]
 	}
+
 	return detail
 }

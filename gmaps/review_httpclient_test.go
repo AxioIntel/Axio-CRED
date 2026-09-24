@@ -1,3 +1,4 @@
+//nolint:testpackage // tests the review collector's unexported internals
 package gmaps
 
 import (
@@ -40,26 +41,33 @@ func (p *forwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
 		}
+
 		hj, ok := w.(http.Hijacker)
 		if !ok {
 			http.Error(w, "no hijack", http.StatusInternalServerError)
 			return
 		}
+
 		client, buf, err := hj.Hijack()
 		if err != nil {
 			return
 		}
+
 		_, _ = client.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+
 		go func() {
 			if buf.Reader.Buffered() > 0 {
 				pending, _ := buf.Reader.Peek(buf.Reader.Buffered())
 				_, _ = upstream.Write(pending)
 			}
+
 			_, _ = io.Copy(upstream, client)
 			_ = upstream.Close()
 		}()
+
 		_, _ = io.Copy(client, upstream)
 		_ = client.Close()
+
 		return
 	}
 
@@ -68,25 +76,31 @@ func (p *forwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+
 	for k, vs := range r.Header {
 		if strings.EqualFold(k, "Proxy-Authorization") {
 			continue
 		}
+
 		for _, v := range vs {
 			out.Header.Add(k, v)
 		}
 	}
+
 	resp, err := (&http.Transport{}).RoundTrip(out)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
+
 	defer resp.Body.Close()
+
 	for k, vs := range resp.Header {
 		for _, v := range vs {
 			w.Header().Add(k, v)
 		}
 	}
+
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
 }
@@ -97,6 +111,7 @@ func fakeGoogle(t *testing.T) (*httptest.Server, *[]http.Header) {
 	t.Helper()
 
 	var mu sync.Mutex
+
 	seen := []http.Header{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
@@ -128,11 +143,13 @@ func TestTheRealTransportGoesOnlyThroughTheIdentitysProxy(t *testing.T) {
 		proxy:     "http://alice:s3cret@" + strings.TrimPrefix(proxySrv.URL, "http://"),
 		userAgent: "UA-identity-a",
 	}
+
 	t.Cleanup(func() {
 		if id.session != nil {
 			id.session.Close()
 		}
 	})
+
 	tr := azuretlsTransport{}
 	ctx := context.Background()
 
@@ -154,8 +171,10 @@ func TestTheRealTransportGoesOnlyThroughTheIdentitysProxy(t *testing.T) {
 	// Every request reached the target through the proxy, with this identity's credentials.
 	host := strings.TrimPrefix(google.URL, "http://")
 	want := "Basic " + base64.StdEncoding.EncodeToString([]byte("alice:s3cret"))
+
 	proxy.mu.Lock()
 	require.NotEmpty(t, proxy.targets)
+
 	for n, target := range proxy.targets {
 		assert.Equal(t, host, target)
 		assert.Equal(t, want, proxy.auths[n])
@@ -174,10 +193,12 @@ func TestTheRealTransportNeverFallsBackToADirectConnection(t *testing.T) {
 	// A proxy address nothing listens on.
 	dead, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
+
 	addr := dead.Addr().String()
 	require.NoError(t, dead.Close())
 
 	id := &reviewIdentity{proxy: "http://alice:s3cret@" + addr, userAgent: "UA"}
+
 	t.Cleanup(func() {
 		if id.session != nil {
 			id.session.Close()

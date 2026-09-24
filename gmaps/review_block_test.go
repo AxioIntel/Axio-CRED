@@ -1,3 +1,4 @@
+//nolint:testpackage // tests the review collector's unexported internals
 package gmaps
 
 import (
@@ -79,6 +80,7 @@ func TestAnEntryWithoutExtraReviewsCarriesNoCollectionReport(t *testing.T) {
 	require.NoError(t, err)
 
 	var back map[string]any
+
 	require.NoError(t, json.Unmarshal(withReport, &back))
 	report, ok := back["review_collection"].(map[string]any)
 	require.True(t, ok)

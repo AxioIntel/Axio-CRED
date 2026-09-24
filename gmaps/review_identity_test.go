@@ -1,3 +1,4 @@
+//nolint:testpackage // tests the review collector's unexported internals
 package gmaps
 
 import (
@@ -33,13 +34,16 @@ func (f *fakeTransport) do(_ context.Context, id *reviewIdentity, url string) (r
 	if f.uas == nil {
 		f.uas = map[string]string{}
 	}
+
 	f.uas[id.proxy] = id.userAgent
 
 	queue := f.steps[id.proxy][url]
 	if len(queue) == 0 {
 		return rpcResponse{}, errors.New("unscripted " + url + " as " + id.String())
 	}
+
 	next := queue[0]
+
 	if len(queue) > 1 {
 		f.steps[id.proxy][url] = queue[1:]
 	}
@@ -82,6 +86,7 @@ func TestEachIdentityKeepsItsOwnUserAgent(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.NotEqual(t, pool.ids[1].userAgent, pool.ids[2].userAgent)
+
 	for _, id := range pool.ids {
 		assert.Contains(t, id.userAgent, "Chrome/")
 	}
@@ -112,12 +117,14 @@ func TestConcurrentRotationIsSafe(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
 			pool.rotate()
 			_ = pool.current()
 		}()
 	}
+
 	wg.Wait()
 }
 
@@ -167,7 +174,9 @@ func TestWhenEveryIdentityIsRefusedTheDOMGetsWhatIsLeft(t *testing.T) {
 	domAsked := false
 	dom := func(_ context.Context, known *reviewSet, _, _ int) []DOMReview {
 		domAsked = true
+
 		assert.True(t, known.has("r1"))
+
 		return nil
 	}
 	c, _, _ := collector(ReviewConfig{}, nil, identityRoute(t, tr, proxyBrowser, proxyA, proxyB), dom)
@@ -246,11 +255,13 @@ func TestATransientFailureSlowsTheRestOfTheRun(t *testing.T) {
 func TestPacingNeverExceedsItsCeiling(t *testing.T) {
 	c, _, _ := collector(ReviewConfig{PageDelay: 6 * time.Second}, nil, nil, nil)
 	c.pace = c.cfg.PageDelay
+
 	for range 5 {
 		if c.pace < maxPageDelay {
 			c.pace = min(maxPageDelay, max(c.pace*2, time.Second))
 		}
 	}
+
 	assert.Equal(t, maxPageDelay, c.pace)
 }
 
@@ -260,6 +271,7 @@ func TestRandomJitterStaysUnderItsBound(t *testing.T) {
 		assert.GreaterOrEqual(t, j, time.Duration(0))
 		assert.Less(t, j, time.Second)
 	}
+
 	assert.Equal(t, time.Duration(0), randomJitter(0))
 }
 

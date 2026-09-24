@@ -42,14 +42,17 @@ func (c ReviewConfig) withDefaults() ReviewConfig {
 	if c.Budget <= 0 {
 		c.Budget = defaultReviewBudget
 	}
+
 	if c.MaxReviews <= 0 {
 		c.MaxReviews = defaultReviewCap
 	}
+
 	if c.PageDelay < 0 {
 		c.PageDelay = 0
 	} else if c.PageDelay == 0 {
 		c.PageDelay = defaultReviewPageDelay
 	}
+
 	return c
 }
 
@@ -71,7 +74,7 @@ type closingFetcher interface {
 }
 
 // domExtractor scrolls the public review panel (`extractReviewsFromPage` in production).
-type domExtractor func(ctx context.Context, known *reviewSet, target, cap int) []DOMReview
+type domExtractor func(ctx context.Context, known *reviewSet, target, limit int) []DOMReview
 
 // reviewResult is what the review path hands to `PlaceJob.Process`: the rows beyond the inline
 // reviews, and the report to settle once those are counted in.
@@ -101,6 +104,7 @@ type reviewCollector struct {
 // newReviewCollector wires the production seams for one place page.
 func newReviewCollector(cfg ReviewConfig, page scrapemate.BrowserPage, mapURL string) *reviewCollector {
 	cfg = cfg.withDefaults()
+
 	c := &reviewCollector{
 		cfg: cfg,
 		urlFor: func(token, requestID string) (string, error) {
@@ -113,8 +117,8 @@ func newReviewCollector(cfg ReviewConfig, page scrapemate.BrowserPage, mapURL st
 	}
 	if page != nil {
 		c.browser = pageRPC{page: page}
-		c.dom = func(ctx context.Context, known *reviewSet, target, cap int) []DOMReview {
-			return extractReviewsFromPage(ctx, page, known, target, cap)
+		c.dom = func(ctx context.Context, known *reviewSet, target, limit int) []DOMReview {
+			return extractReviewsFromPage(ctx, page, known, target, limit)
 		}
 	}
 	// With proxies, the HTTP route is one identity per proxy and rotates when refused. Without,
@@ -130,6 +134,7 @@ func newReviewCollector(cfg ReviewConfig, page scrapemate.BrowserPage, mapURL st
 	} else {
 		c.http = stealthRPC{client: stealth.New("firefox", nil)}
 	}
+
 	return c
 }
 
@@ -138,13 +143,15 @@ func randomJitter(d time.Duration) time.Duration {
 	if d <= 0 {
 		return 0
 	}
-	return time.Duration(rand.Int64N(int64(d)))
+
+	return time.Duration(rand.Int64N(int64(d))) //nolint:gosec // spreads requests in time; guards nothing
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return ctx.Err()
 	}
+
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
@@ -174,9 +181,10 @@ type stageOutcome struct {
 // run collects one place's reviews through each available stage in turn until the listing is
 // read, the budget or cap is reached, or every stage has been refused. Everything collected is
 // kept on every path out; no stage swallows a failure without it reaching the report.
-func (c *reviewCollector) run(ctx context.Context, reported int) reviewResult {
+func (c *reviewCollector) run(ctx context.Context, reported int) *reviewResult {
 	start := c.now()
 	deadline := start.Add(c.cfg.Budget)
+
 	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(c.cfg.Budget))
 	defer cancel()
 	defer c.release()
@@ -194,22 +202,27 @@ func (c *reviewCollector) run(ctx context.Context, reported int) reviewResult {
 	}
 
 	var last stageOutcome
-	finish := func(o stageOutcome, stage string) reviewResult {
+
+	finish := func(o stageOutcome, stage string) *reviewResult {
 		report.StopReason, report.StopStage, report.StopDetail = o.reason, stage, o.detail
 		if !report.ReportedKnown && (o.reason == stopExhausted || o.reason == stopDone) {
 			report.StopReason = stopCountUnknown
 		}
+
 		report.ElapsedSeconds = c.now().Sub(start).Seconds()
-		return reviewResult{Rows: set.extended(), Report: report}
+
+		return &reviewResult{Rows: set.extended(), Report: report}
 	}
 
 	requestID, err := c.newID()
 	if err != nil {
 		return finish(stageOutcome{reason: stopError, detail: "no request id: " + err.Error()}, stageRPCBrowser)
 	}
+
 	cursor := &rpcCursor{requestID: requestID, seen: map[string]bool{}}
 
 	lastStage := ""
+
 	for _, st := range []struct {
 		name string
 		f    rpcFetcher
@@ -217,13 +230,16 @@ func (c *reviewCollector) run(ctx context.Context, reported int) reviewResult {
 		if st.f == nil {
 			continue
 		}
+
 		report.Stages = append(report.Stages, st.name)
 		lastStage = st.name
+
 		last = c.runRPCStage(ctx, deadline, st.f, set, cursor, reported, &report)
 		if last.reason == stopExhausted || last.reason == stopCap || last.reason == stopBudget ||
 			last.reason == stopParseError {
 			break
 		}
+
 		log.Printf("review stage %s stopped (%s: %s); trying the next", st.name, last.reason, last.detail)
 	}
 
@@ -231,6 +247,7 @@ func (c *reviewCollector) run(ctx context.Context, reported int) reviewResult {
 	case stopCap, stopBudget:
 		return finish(last, lastStage)
 	}
+
 	if lastStage == "" {
 		last = stageOutcome{reason: stopError, detail: "no review route available"}
 	}
@@ -242,12 +259,16 @@ func (c *reviewCollector) run(ctx context.Context, reported int) reviewResult {
 		(!report.ReportedKnown && last.reason != stopExhausted)
 	if needMore && c.dom != nil && !c.pastDeadline(ctx, deadline) {
 		report.Stages = append(report.Stages, stageDOM)
+
 		dom := c.dom(ctx, set, reported, c.cfg.MaxReviews)
-		for _, r := range ConvertDOMReviewsToReviews(dom) {
-			if set.add(r) {
+		converted := ConvertDOMReviewsToReviews(dom)
+
+		for i := range converted {
+			if set.add(&converted[i]) {
 				report.DOMReviews++
 			}
 		}
+
 		switch {
 		case c.pastDeadline(ctx, deadline):
 			return finish(stageOutcome{reason: stopBudget}, stageDOM)
@@ -287,6 +308,7 @@ func (c *reviewCollector) runRPCStage(ctx context.Context, deadline time.Time, f
 		if c.pastDeadline(ctx, deadline) {
 			return stageOutcome{reason: stopBudget}
 		}
+
 		if report.RPCPages >= budgetPages {
 			return stageOutcome{reason: stopExhausted, detail: "page budget reached"}
 		}
@@ -306,11 +328,14 @@ func (c *reviewCollector) runRPCStage(ctx context.Context, deadline time.Time, f
 				if err != nil {
 					return outcome
 				}
+
 				report.Restarts++
 				budgetPages += report.RPCPages
 				cursor.token, cursor.requestID, cursor.seen = "", requestID, map[string]bool{}
+
 				continue
 			}
+
 			return outcome
 		}
 
@@ -320,9 +345,11 @@ func (c *reviewCollector) runRPCStage(ctx context.Context, deadline time.Time, f
 		if set.len() >= c.cfg.MaxReviews {
 			return stageOutcome{reason: stopCap}
 		}
+
 		if page.NextToken == "" || cursor.seen[page.NextToken] {
 			return stageOutcome{reason: stopExhausted}
 		}
+
 		cursor.seen[page.NextToken] = true
 		cursor.token = page.NextToken
 
@@ -343,12 +370,13 @@ func (c *reviewCollector) fetchOnePage(ctx context.Context, deadline time.Time, 
 		resp, err := f.fetchPage(ctx, url)
 		verdict, detail := classifyRPC(resp, err)
 
-		switch verdict {
+		switch verdict { //nolint:exhaustive // verdictTransient is the retry below the switch
 		case verdictOK:
 			page, perr := parseRPCPage(resp.Body)
 			if perr != nil {
 				return rpcPage{}, stageOutcome{reason: stopParseError, detail: perr.Error(), afterRotation: rotated}, false
 			}
+
 			return page, stageOutcome{}, true
 
 		case verdictBlocked:
@@ -357,8 +385,10 @@ func (c *reviewCollector) fetchOnePage(ctx context.Context, deadline time.Time, 
 			if rf, ok := f.(rotatingFetcher); ok && !c.pastDeadline(ctx, deadline) && rf.rotate() {
 				report.IdentityRotations++
 				rotated, attempt = true, 0
+
 				continue
 			}
+
 			return rpcPage{}, stageOutcome{reason: stopBlocked, detail: detail}, false
 
 		case verdictInvalid:
@@ -369,15 +399,19 @@ func (c *reviewCollector) fetchOnePage(ctx context.Context, deadline time.Time, 
 		if c.pace < maxPageDelay {
 			c.pace = min(maxPageDelay, max(c.pace*2, time.Second))
 		}
+
 		if c.pastDeadline(ctx, deadline) {
 			return rpcPage{}, stageOutcome{reason: stopBudget}, false
 		}
+
 		if attempt >= transientRetries {
 			return rpcPage{}, stageOutcome{reason: stopError, detail: detail}, false
 		}
+
 		if err := c.sleep(ctx, time.Duration(2<<attempt)*time.Second); err != nil {
 			return rpcPage{}, stageOutcome{reason: stopBudget}, false
 		}
+
 		attempt++
 	}
 }
@@ -422,6 +456,7 @@ func decodePageRPC(result any) (rpcResponse, error) {
 	if !ok {
 		return rpcResponse{}, fmt.Errorf("browser fetch returned %T", result)
 	}
+
 	if msg, _ := m["error"].(string); msg != "" {
 		return rpcResponse{}, errors.New("browser fetch: " + msg)
 	}
@@ -433,10 +468,12 @@ func decodePageRPC(result any) (rpcResponse, error) {
 	case int:
 		resp.Status = s
 	}
+
 	resp.FinalURL, _ = m["url"].(string)
 	if text, ok := m["text"].(string); ok {
 		resp.Body = []byte(text)
 	}
+
 	return resp, nil
 }
 
@@ -451,5 +488,6 @@ func (s stealthRPC) fetchPage(ctx context.Context, url string) (rpcResponse, err
 	if resp.Error != nil {
 		return rpcResponse{}, resp.Error
 	}
+
 	return rpcResponse{Status: resp.StatusCode, FinalURL: resp.URL, Body: resp.Body}, nil
 }

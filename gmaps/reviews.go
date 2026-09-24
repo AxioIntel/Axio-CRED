@@ -27,20 +27,23 @@ var reviewDOMScript string
 // `cap` bounds it -- `cap/20` pages is the most that could ever be kept -- and `count <= 0`
 // (unknown) gets that same ceiling rather than a guess. `+2` pages of headroom plus roughly 5% of
 // slack, at least one page, absorb a count that moved between the listing read and the pull.
-func reviewPageBudget(count, cap int) int {
-	ceiling := cap / 20
+func reviewPageBudget(count, limit int) int {
+	ceiling := limit / 20
 	if ceiling < 1 {
 		ceiling = 1
 	}
+
 	if count <= 0 {
 		return ceiling
 	}
 
 	pages := (count + 19) / 20
+
 	slack := pages / 20
 	if slack < 1 {
 		slack = 1
 	}
+
 	pages += 2 + slack
 	if pages > ceiling {
 		return ceiling
@@ -162,9 +165,9 @@ type DOMReview struct {
 
 // mergeDOMReviews indexes identities once instead of comparing every loaded card
 // with every prior card on each scroll. Distinct IDs always remain distinct.
-func mergeDOMReviews(reviews, incoming []DOMReview, index map[string]int, cap int) []DOMReview {
-	if cap <= 0 {
-		cap = defaultReviewCap
+func mergeDOMReviews(reviews, incoming []DOMReview, index map[string]int, limit int) []DOMReview {
+	if limit <= 0 {
+		limit = defaultReviewCap
 	}
 
 	for position := range incoming {
@@ -201,7 +204,7 @@ func mergeDOMReviews(reviews, incoming []DOMReview, index map[string]int, cap in
 			continue
 		}
 
-		if len(reviews) >= cap {
+		if len(reviews) >= limit {
 			break
 		}
 
@@ -320,20 +323,23 @@ const (
 )
 
 // domShouldStop is the scroll loop's stop decision, pulled out as a pure function so it is
-// tested without a browser. `domCount` is this pass's own accumulated DOM count; `cap` the
+// tested without a browser. `domCount` is this pass's own accumulated DOM count; `limit` the
 // safety ceiling; `unionCount` is what DOM plus everything already known holds (typically
 // `known.distinct() + netNewAgainst(known, reviews)`); `target` is the place's reported count, 0
 // when unknown; `stuckPasses` is how many consecutive passes found nothing new.
-func domShouldStop(domCount, cap, unionCount, target, stuckPasses, stuckLimit int) (bool, string) {
-	if domCount >= cap {
+func domShouldStop(domCount, limit, unionCount, target, stuckPasses, stuckLimit int) (stop bool, reason string) {
+	if domCount >= limit {
 		return true, domStopCap
 	}
+
 	if target > 0 && unionCount >= target {
 		return true, domStopTarget
 	}
+
 	if stuckPasses >= stuckLimit {
 		return true, domStopStuck
 	}
+
 	return false, ""
 }
 
@@ -343,10 +349,11 @@ func domShouldStop(domCount, cap, unionCount, target, stuckPasses, stuckLimit in
 // may be nil (nothing known yet); an id-less DOM review is never counted as one `known` has, the
 // same rule the rest of this codebase uses for an id-less review.
 func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, known *reviewSet,
-	target, cap int) []DOMReview {
+	target, limit int) []DOMReview {
 	log.Printf("Attempting DOM-based review extraction")
-	if cap <= 0 {
-		cap = defaultReviewCap
+
+	if limit <= 0 {
+		limit = defaultReviewCap
 	}
 
 	// First, try to click the reviews section to open the reviews panel
@@ -453,7 +460,7 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, kn
 			if ok {
 				decoded := decodeDOMReviews(rawReviews)
 
-				reviews = mergeDOMReviews(reviews, decoded, reviewIndex, cap)
+				reviews = mergeDOMReviews(reviews, decoded, reviewIndex, limit)
 			}
 		}
 
@@ -465,7 +472,7 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, kn
 			lastCount = currentCount
 		}
 
-		if stop, reason := domShouldStop(currentCount, cap,
+		if stop, reason := domShouldStop(currentCount, limit,
 			known.distinct()+netNewAgainst(known, reviews), target, stuckCount, maxStuckPasses); stop {
 			switch reason {
 			case domStopCap:
@@ -473,6 +480,7 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, kn
 			case domStopStuck:
 				log.Printf("Review count stuck at %d, stopping scroll", currentCount)
 			}
+
 			break
 		}
 
@@ -506,10 +514,12 @@ func extractReviewsFromPage(ctx context.Context, page scrapemate.BrowserPage, kn
 // never counted as one `known` has -- there is nothing to compare it by.
 func netNewAgainst(known *reviewSet, reviews []DOMReview) int {
 	n := 0
+
 	for i := range reviews {
 		if id := reviews[i].ReviewID; id != "" && !known.has(id) {
 			n++
 		}
 	}
+
 	return n
 }

@@ -43,6 +43,7 @@ func (i *reviewIdentity) String() string {
 	if err != nil || u.Host == "" {
 		return "identity via [unparseable proxy]"
 	}
+
 	return "identity via " + u.Scheme + "://" + u.Host
 }
 
@@ -64,11 +65,13 @@ func newIdentityPool(proxies []string) (*identityPool, error) {
 	}
 
 	ids := make([]*reviewIdentity, 0, len(proxies))
+
 	for n, raw := range proxies {
 		u, err := url.Parse(raw)
 		if err != nil || u.Host == "" || u.Scheme == "" {
 			return nil, fmt.Errorf("proxy %d is not a proxy URL", n+1)
 		}
+
 		ids = append(ids, &reviewIdentity{
 			proxy:     raw,
 			userAgent: reviewUserAgents[n%len(reviewUserAgents)],
@@ -129,17 +132,20 @@ func newIdentityClient(proxies []string, tr rpcTransport) (*identityClient, erro
 	if err != nil {
 		return nil, err
 	}
+
 	return &identityClient{pool: pool, tr: tr}, nil
 }
 
 func (c *identityClient) rotate() bool {
 	from := c.pool.current()
 	ok := c.pool.rotate()
+
 	if ok {
 		log.Printf("review identity refused (%s); rotating to %s", from, c.pool.current())
 	} else {
 		log.Printf("review identity refused (%s); every identity has been refused", from)
 	}
+
 	return ok
 }
 

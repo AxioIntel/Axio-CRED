@@ -63,4 +63,3 @@ func Test_ConvertDOMReviewsToReviews(t *testing.T) {
 	assert.Equal(t, "Reviewer A", got[0].Name)
 	assert.Equal(t, "3 months ago", got[0].When)
 }
-

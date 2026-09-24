@@ -1,3 +1,4 @@
+//nolint:testpackage // tests the review collector's unexported internals
 package gmaps
 
 import (
@@ -19,6 +20,7 @@ func rawReviewElements(t *testing.T, filename string) []any {
 	require.NoError(t, err)
 
 	var els []any
+
 	require.NoError(t, json.Unmarshal(raw, &els))
 
 	return els

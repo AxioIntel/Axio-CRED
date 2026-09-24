@@ -121,10 +121,10 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 	// The extended review collection, merged against the inline reviews once (`reviewSet`: a
 	// review both carry is enriched in place, never stored twice), and its report settled against
 	// that union.
-	if result, ok := resp.Meta["review_result"].(reviewResult); ok {
+	if result, ok := resp.Meta["review_result"].(*reviewResult); ok {
 		set := newReviewSet(entry.UserReviews, j.ReviewConfig.withDefaults().MaxReviews)
-		for _, r := range result.Rows {
-			set.add(r)
+		for i := range result.Rows {
+			set.add(&result.Rows[i])
 		}
 
 		entry.SetExtendedReviews(set.extended())
@@ -207,7 +207,7 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 		if reported > 0 || placeShowsReviews(raw) {
 			resp.Meta["review_result"] = newReviewCollector(j.ReviewConfig, page, page.URL()).run(ctx, reported)
 		} else {
-			resp.Meta["review_result"] = reviewResult{
+			resp.Meta["review_result"] = &reviewResult{
 				Report: ReviewCollection{StopReason: stopNoReviews, Stages: []string{}},
 			}
 		}
@@ -314,6 +314,7 @@ func placeBlocked(status int, finalURL string) string {
 	case status == 403 || status == 429:
 		return fmt.Sprintf("HTTP %d", status)
 	}
+
 	return ""
 }
 
@@ -325,14 +326,17 @@ func placeShowsReviews(raw []byte) bool {
 	if err != nil {
 		return false
 	}
+
 	if len(entry.UserReviews) > 0 {
 		return true
 	}
+
 	for _, n := range entry.ReviewsPerRating {
 		if n > 0 {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -340,6 +344,7 @@ func stageSuffix(stage string) string {
 	if stage == "" {
 		return ""
 	}
+
 	return " in " + stage
 }
 

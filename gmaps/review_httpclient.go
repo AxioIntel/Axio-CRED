@@ -24,11 +24,13 @@ func (azuretlsTransport) do(ctx context.Context, id *reviewIdentity, url string)
 	if id.session == nil {
 		s := azuretls.NewSessionWithContext(ctx)
 		s.SetTimeout(reviewHTTPTimeout)
+
 		s.UserAgent = id.userAgent
 		if err := s.SetProxy(id.proxy); err != nil {
 			s.Close()
 			return rpcResponse{}, err
 		}
+
 		id.session = s
 	}
 
@@ -49,6 +51,7 @@ func (azuretlsTransport) do(ctx context.Context, id *reviewIdentity, url string)
 	}
 
 	final := resp.Url
+
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		if loc := resp.Header.Get("Location"); loc != "" {
 			final = loc

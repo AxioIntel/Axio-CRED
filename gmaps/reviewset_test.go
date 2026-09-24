@@ -1,3 +1,4 @@
+//nolint:testpackage // tests the review collector's unexported internals
 package gmaps
 
 import (
@@ -32,7 +33,7 @@ func TestReviewSetSeededWithPrimaryEnrichesPrimaryInPlace(t *testing.T) {
 	primary := []Review{{ReviewID: "p1", Description: "short"}}
 	set := newReviewSet(primary, 0)
 
-	added := set.add(Review{ReviewID: "p1", Description: "a much longer version", ReplyText: "thanks"})
+	added := set.add(&Review{ReviewID: "p1", Description: "a much longer version", ReplyText: "thanks"})
 	assert.False(t, added)
 	assert.Equal(t, "a much longer version", primary[0].Description)
 	assert.Equal(t, "thanks", primary[0].ReplyText)
@@ -45,8 +46,8 @@ func TestReviewSetSeededWithPrimaryEnrichesPrimaryInPlace(t *testing.T) {
 func TestReviewSetSeedingCountsPrimaryOnceInDistinct(t *testing.T) {
 	primary := []Review{{ReviewID: "p1"}, {ReviewID: "p2"}}
 	set := newReviewSet(primary, 0)
-	set.add(Review{ReviewID: "p1"})    // re-read of a primary review: not new
-	set.add(Review{ReviewID: "extra"}) // genuinely new
+	set.add(&Review{ReviewID: "p1"})    // re-read of a primary review: not new
+	set.add(&Review{ReviewID: "extra"}) // genuinely new
 
 	assert.Equal(t, 3, set.distinct())
 	assert.Equal(t, 1, set.len())
@@ -55,8 +56,8 @@ func TestReviewSetSeedingCountsPrimaryOnceInDistinct(t *testing.T) {
 
 func TestReviewSetAnIDLessReviewIsNeverADuplicate(t *testing.T) {
 	set := newReviewSet(nil, 0)
-	added1 := set.add(Review{Description: "anonymous review one"})
-	added2 := set.add(Review{Description: "anonymous review one"}) // same text, still counted
+	added1 := set.add(&Review{Description: "anonymous review one"})
+	added2 := set.add(&Review{Description: "anonymous review one"}) // same text, still counted
 
 	assert.True(t, added1)
 	assert.True(t, added2)
@@ -67,7 +68,7 @@ func TestReviewSetAnIDLessReviewIsNeverADuplicate(t *testing.T) {
 
 func TestReviewSetHasChecksPrimaryAndAddedRows(t *testing.T) {
 	set := newReviewSet([]Review{{ReviewID: "p1"}}, 0)
-	set.add(Review{ReviewID: "r1"})
+	set.add(&Review{ReviewID: "r1"})
 
 	assert.True(t, set.has("p1"))
 	assert.True(t, set.has("r1"))
@@ -77,13 +78,13 @@ func TestReviewSetHasChecksPrimaryAndAddedRows(t *testing.T) {
 
 func TestReviewSetRefusesANewRowPastTheCapButStillEnrichesOldOnes(t *testing.T) {
 	set := newReviewSet(nil, 2)
-	set.add(Review{ReviewID: "r1", Description: "short"})
-	set.add(Review{ReviewID: "r2", Description: "short"})
-	added := set.add(Review{ReviewID: "r3", Description: "short"})
+	set.add(&Review{ReviewID: "r1", Description: "short"})
+	set.add(&Review{ReviewID: "r2", Description: "short"})
+	added := set.add(&Review{ReviewID: "r3", Description: "short"})
 	assert.False(t, added)
 	assert.Equal(t, 2, set.len())
 
-	enriched := set.add(Review{ReviewID: "r1", Description: "a longer version of r1"})
+	enriched := set.add(&Review{ReviewID: "r1", Description: "a longer version of r1"})
 	assert.False(t, enriched)
 	assert.Equal(t, "a longer version of r1", findByID(t, set.extended(), "r1").Description)
 }
@@ -93,8 +94,8 @@ func TestReviewSetIDLessPrimaryRowsNeverMatchIDLessAdditions(t *testing.T) {
 	// are never treated as the same review, whichever source either came from.
 	primary := []Review{{ReviewID: ""}, {ReviewID: "id-1"}}
 	set := newReviewSet(primary, 0)
-	set.add(Review{ReviewID: ""})
-	set.add(Review{ReviewID: ""})
+	set.add(&Review{ReviewID: ""})
+	set.add(&Review{ReviewID: ""})
 
 	assert.Equal(t, []Review{{ReviewID: ""}, {ReviewID: ""}}, set.extended())
 }
@@ -107,6 +108,7 @@ func TestReviewSetAddPageReturnsHowManyWereNew(t *testing.T) {
 
 func TestANilReviewSetBehavesAsEmpty(t *testing.T) {
 	var set *reviewSet
+
 	assert.Equal(t, 0, set.len())
 	assert.Equal(t, 0, set.distinct())
 	assert.Nil(t, set.extended())
@@ -115,11 +117,14 @@ func TestANilReviewSetBehavesAsEmpty(t *testing.T) {
 
 func findByID(t *testing.T, rows []Review, id string) Review {
 	t.Helper()
-	for _, r := range rows {
-		if r.ReviewID == id {
-			return r
+
+	for i := range rows {
+		if rows[i].ReviewID == id {
+			return rows[i]
 		}
 	}
+
 	t.Fatalf("no review with id %q", id)
+
 	return Review{}
 }
