@@ -2,8 +2,10 @@ package gmaps
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/google/uuid"
@@ -103,6 +105,30 @@ func (j *EmailExtractJob) Process(ctx context.Context, resp *scrapemate.Response
 
 func (j *EmailExtractJob) ProcessOnFetchError() bool {
 	return true
+}
+
+// BrowserActions fetches the business's front page with a plain, direct request instead of
+// through the browser. The browser carries the run's proxies, and they are only needed for
+// Google: a business's own website does not block us, and proxies billed by traffic would pay
+// for every page of it. This also saves starting a page render for each site.
+//
+// A site that writes its address only with JavaScript is not seen this way; the contact pages
+// were already read the same direct way, and mailto links and Cloudflare-protected addresses
+// are in the served HTML.
+func (j *EmailExtractJob) BrowserActions(ctx context.Context, _ scrapemate.BrowserPage) scrapemate.Response {
+	fetch := j.fetchPage
+	if fetch == nil {
+		fetch = fetchSitePage
+	}
+
+	started := time.Now()
+
+	body, err := fetch(ctx, j.URL)
+	if err != nil {
+		return scrapemate.Response{URL: j.URL, Error: err}
+	}
+
+	return scrapemate.Response{URL: j.URL, StatusCode: http.StatusOK, Body: body, Duration: time.Since(started)}
 }
 
 // normalizeGoogleURL extracts the actual target URL from Google redirect URLs.

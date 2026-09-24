@@ -210,3 +210,25 @@ func mustURL(t *testing.T, raw string) *url.URL {
 
 	return u
 }
+
+func TestTheEmailJobFetchesTheSiteDirectlyNotThroughTheBrowser(t *testing.T) {
+	var asked []string
+
+	job := NewEmailJob("parent", &Entry{WebSite: "https://smiledental.com/"})
+	job.fetchPage = func(_ context.Context, u string) ([]byte, error) {
+		asked = append(asked, u)
+
+		return []byte(`<a href="mailto:info@smiledental.com">mail</a>`), nil
+	}
+
+	// A nil page: the browser (and its proxy) is never touched.
+	resp := job.BrowserActions(context.Background(), nil)
+
+	require.NoError(t, resp.Error)
+	assert.Equal(t, 200, resp.StatusCode)
+	assert.Contains(t, string(resp.Body), "info@smiledental.com")
+	assert.Equal(t, []string{"https://smiledental.com/"}, asked)
+
+	job.fetchPage = func(context.Context, string) ([]byte, error) { return nil, errors.New("HTTP 403") }
+	assert.Error(t, job.BrowserActions(context.Background(), nil).Error)
+}
