@@ -130,7 +130,9 @@ type Entry struct {
 	About               []About      `json:"about"`
 	UserReviews         []Review     `json:"user_reviews"`
 	UserReviewsExtended []Review     `json:"user_reviews_extended"`
-	Emails              []string     `json:"emails"`
+	// ReviewCollection is how the extended review collection went (`-extra-reviews` only).
+	ReviewCollection *ReviewCollection `json:"review_collection,omitempty"`
+	Emails           []string          `json:"emails"`
 }
 
 // entryAlias is used inside Marshal/UnmarshalJSON to avoid infinite recursion

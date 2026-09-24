@@ -20,12 +20,9 @@ func TestNativeIncrementalReviewMerge(t *testing.T) {
 	assert.NotEmpty(t, rows[0].AuthorURL)
 }
 
-func TestNativeSupplementIncompleteRPC(t *testing.T) {
-	assert.True(t, needsMoreReviews(20, 1169, defaultReviewCap))
-	assert.True(t, needsMoreReviews(0, 0, defaultReviewCap))
-	assert.False(t, needsMoreReviews(1169, 1169, defaultReviewCap))
-	assert.False(t, needsMoreReviews(5000, 10000, defaultReviewCap))
-	assert.False(t, needsMoreReviews(20, 0, defaultReviewCap))
+func TestNativePageBudgetNeverExceedsTheCap(t *testing.T) {
+	// Whether RPC is supplemented from the public page is the collector's call now
+	// (review_collector_test.go); the page budget still never outruns the cap.
 	assert.LessOrEqual(t, reviewPageBudget(1000000, defaultReviewCap)*20, defaultReviewCap)
 }
 
