@@ -437,9 +437,16 @@ func defaultSetupMate(cfg *runner.Config) func(context.Context, io.Writer, *web.
 		}
 
 		if !cfg.DisablePageReuse {
+			// Each browser keeps one proxy for its life. With proxies, a browser is replaced
+			// every 25 pages so a proxy Google has started refusing is dropped quickly.
+			browserReuse := 200
+			if hasProxy {
+				browserReuse = 25
+			}
+
 			opts = append(opts,
 				scrapemateapp.WithPageReuseLimit(2),
-				scrapemateapp.WithBrowserReuseLimit(200),
+				scrapemateapp.WithBrowserReuseLimit(browserReuse),
 			)
 		}
 

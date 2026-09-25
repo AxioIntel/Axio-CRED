@@ -206,9 +206,23 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 func (j *GmapJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPage) scrapemate.Response {
 	var resp scrapemate.Response
 
+	if err := Blocks.Wait(ctx); err != nil {
+		resp.Error = err
+
+		return resp
+	}
+
 	pageResponse, err := page.Goto(j.GetFullURL(), scrapemate.WaitUntilDOMContentLoaded)
 	if err != nil {
 		resp.Error = err
+
+		return resp
+	}
+
+	if refusedByResponse(pageResponse.StatusCode, page.URL()) {
+		Blocks.Refused()
+
+		resp.Error = ErrGoogleBlocked
 
 		return resp
 	}
@@ -239,6 +253,22 @@ func (j *GmapJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPag
 		singlePlace = waitUntilURLContains(waitCtx, page, "/maps/place/")
 
 		waitCancel()
+
+		// Neither a results list nor a single place: a refusal page served with a 200 looks
+		// exactly like this.
+		if !singlePlace {
+			if html, cerr := page.Content(); cerr == nil && refusedByContent(html) {
+				Blocks.Refused()
+
+				resp.Error = ErrGoogleBlocked
+
+				return resp
+			}
+		}
+	}
+
+	if err == nil || singlePlace {
+		Blocks.Loaded()
 	}
 
 	if singlePlace {

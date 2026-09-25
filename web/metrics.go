@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/AxioIntel/Axio-CRED/gmaps"
 )
 
 // The metrics strip at the top of every page: how hard the machine is working, and how fast the
@@ -52,6 +54,7 @@ type Metrics struct {
 	MemUsedGB, MemTotGB float64
 	NetInKBs, NetOutKBs float64
 	Job                 *JobProgress
+	Blocks              gmaps.BlockStats
 	Pending             int
 	Notes               []string
 	At                  time.Time
@@ -113,7 +116,7 @@ func (s *Server) sampleMetrics(ctx context.Context) {
 	now := time.Now()
 	h, ok := hostStats(s.svc.dataFolder)
 
-	m := Metrics{At: now.UTC(), Supported: ok}
+	m := Metrics{At: now.UTC(), Supported: ok, Blocks: gmaps.Blocks.Stats()}
 
 	st := &s.metrics
 	st.mu.Lock()
@@ -275,6 +278,7 @@ var metricsTmpl = template.Must(template.New("metrics").Funcs(template.FuncMap{
 <span class="m m-job m-{{.State}}" title="{{.Name}}">▶ <b>{{.Rows}}</b> <i>of ~{{.Expected}} ({{.Percent}}%)</i> · <b>{{f1 .RatePerMin}}</b> <i>/min</i> · ETA <b>{{dur .ETA}}</b> · last <b>{{dur .LastRowAgo}}</b> ago · <span class="state">{{.State}}</span></span>
 {{else}}<span class="m faint">No job running</span>{{end}}
 {{if .Pending}}<span class="m" title="Jobs waiting">Queue <b>{{.Pending}}</b></span>{{end}}
+<span class="m{{if .Blocks.Recent}} m-hot{{end}}" title="Pages Google refused in the last 10 minutes; each refusal is retried on another browser and slows new page loads">Google blocks <b>{{.Blocks.Recent}}</b> <i>/10 min · {{.Blocks.Total}} total</i>{{if gt .Blocks.Backoff 0}} · slowed <b>{{dur .Blocks.Backoff}}</b>{{end}}</span>
 {{range .Notes}}<span class="m m-note">{{.}}</span>{{end}}
 </div>`))
 
