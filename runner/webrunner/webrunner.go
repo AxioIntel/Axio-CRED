@@ -47,6 +47,12 @@ type webrunner struct {
 
 	// watchEvery and stallAfter override the watchdog's timing (tests); zero is the default.
 	watchEvery, stallAfter time.Duration
+
+	// restartAfterJob is set when a finished job's browsers would not close; exit is how the
+	// process then ends (os.Exit; tests replace it) so the container restarts clean.
+	restartAfterJob bool
+	closeGrace      time.Duration
+	exit            func(int)
 }
 
 // A job whose run is stopped by the watchdog is queued again at most this many times.
@@ -273,6 +279,19 @@ func (w *webrunner) work(ctx context.Context) error {
 
 					w.ingest(ctx, &jobs[i])
 					w.afterJob(ctx, &jobs[i])
+
+					if w.restartAfterJob {
+						log.Printf("job %s: its browsers would not close; restarting the dashboard to clear them", jobs[i].ID)
+
+						exit := w.exit
+						if exit == nil {
+							exit = os.Exit
+						}
+
+						exit(exitBrowsersHung)
+
+						return nil
+					}
 				}
 			}
 		}
@@ -309,7 +328,10 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 		setupMate = defaultSetupMate(w.cfg)
 	}
 
-	mate, err := setupMate(ctx, outfile, job)
+	// written is closed when every result has been written to the CSV (see signalWriter).
+	written := make(chan struct{})
+
+	mate, err := setupMate(context.WithValue(ctx, writtenKey{}, written), outfile, job)
 	if err != nil {
 		job.Status = web.StatusFailed
 
@@ -368,7 +390,12 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 
 		go exitMonitor.Run(mateCtx)
 
-		err = mate.Start(mateCtx, seedJobs...)
+		err = w.startMate(mateCtx, mate, seedJobs, written)
+		if errors.Is(err, errCloseHung) {
+			w.restartAfterJob = true
+			err = nil
+		}
+
 		if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
 			cancel()
 
@@ -436,7 +463,7 @@ func (w *webrunner) seedJobs(job *web.Job, coords string, dedup deduper.Deduper,
 }
 
 func defaultSetupMate(cfg *runner.Config) func(context.Context, io.Writer, *web.Job) (mateRunner, error) {
-	return func(_ context.Context, writer io.Writer, job *web.Job) (mateRunner, error) {
+	return func(ctx context.Context, writer io.Writer, job *web.Job) (mateRunner, error) {
 		opts := []func(*scrapemateapp.Config) error{
 			scrapemateapp.WithConcurrency(cfg.Concurrency),
 			scrapemateapp.WithExitOnInactivity(time.Minute * 3),
@@ -485,6 +512,10 @@ func defaultSetupMate(cfg *runner.Config) func(context.Context, io.Writer, *web.
 		csvWriter := csvwriter.NewCsvWriter(csv.NewWriter(writer))
 
 		writers := []scrapemate.ResultWriter{csvWriter}
+
+		if done, ok := ctx.Value(writtenKey{}).(chan struct{}); ok {
+			writers[0] = &signalWriter{ResultWriter: csvWriter, done: done}
+		}
 
 		matecfg, err := scrapemateapp.NewConfig(
 			writers,
@@ -720,5 +751,55 @@ func emptySearches(csvPath string, keywords []string) []string {
 func (w *webrunner) note(msg string) {
 	if w.srv != nil {
 		w.srv.Note(msg)
+	}
+}
+
+// A finished job's browsers sometimes never close: playwright's BrowserContext.Close has no
+// timeout, and scrapemate calls it after every result is already written. The job is done, so it
+// is marked done and ingested, and the process exits for Docker to restart it with no browsers.
+const (
+	defaultCloseGrace = 90 * time.Second
+	exitBrowsersHung  = 75
+)
+
+var errCloseHung = errors.New("browsers did not close after the job finished")
+
+type writtenKey struct{}
+
+// signalWriter closes done once its writer has written every result and returned.
+type signalWriter struct {
+	scrapemate.ResultWriter
+	done chan struct{}
+}
+
+func (s *signalWriter) Run(ctx context.Context, in <-chan scrapemate.Result) error {
+	defer close(s.done)
+
+	return s.ResultWriter.Run(ctx, in)
+}
+
+// startMate runs the scrape, and gives up waiting for it closeGrace after its results were all
+// written.
+func (w *webrunner) startMate(ctx context.Context, mate mateRunner, seeds []scrapemate.IJob, written <-chan struct{}) error {
+	done := make(chan error, 1)
+
+	go func() { done <- mate.Start(ctx, seeds...) }()
+
+	select {
+	case err := <-done:
+		return err
+	case <-written:
+	}
+
+	grace := w.closeGrace
+	if grace <= 0 {
+		grace = defaultCloseGrace
+	}
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(grace):
+		return errCloseHung
 	}
 }

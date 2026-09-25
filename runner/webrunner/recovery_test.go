@@ -3,12 +3,14 @@ package webrunner
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/gosom/scrapemate"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -186,4 +188,42 @@ func TestAGridJobSeedsOneSearchPerSquare(t *testing.T) {
 	seeds, err = w.seedJobs(job, "", nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, seeds, 2)
+}
+
+type hungMate struct{ written chan struct{} }
+
+func (m *hungMate) Start(context.Context, ...scrapemate.IJob) error {
+	close(m.written) // every result is written...
+	select {}        // ...and closing the browsers never returns
+}
+
+func (m *hungMate) Close() error { return nil }
+
+func TestAJobWhoseBrowsersHangIsDoneAndTheProcessRestarts(t *testing.T) {
+	w, repo, _ := newRecoveryRunner(t)
+
+	var exitCode int
+
+	w.closeGrace = 50 * time.Millisecond
+	w.exit = func(code int) { exitCode = code }
+	w.setupMate = func(ctx context.Context, _ io.Writer, _ *web.Job) (mateRunner, error) {
+		written, ok := ctx.Value(writtenKey{}).(chan struct{})
+		require.True(t, ok)
+
+		return &hungMate{written: written}, nil
+	}
+
+	job := &web.Job{ID: "11111111-1111-1111-1111-111111111111", Name: "x", Status: web.StatusPending, Date: time.Now().UTC(),
+		Data: web.JobData{Keywords: []string{"dentist"}, Lang: "en", Depth: 1, MaxTime: time.Hour}}
+	require.NoError(t, repo.Create(t.Context(), job))
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+
+	require.NoError(t, w.work(ctx))
+
+	got, err := repo.Get(t.Context(), job.ID)
+	require.NoError(t, err)
+	assert.Equal(t, web.StatusOK, got.Status)
+	assert.Equal(t, exitBrowsersHung, exitCode)
 }
