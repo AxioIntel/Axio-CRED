@@ -108,6 +108,24 @@ func (g *geocoder) lookup(ctx context.Context, area string) (place, error) {
 		return p, nil
 	}
 
+	// A city or town first: "Houston TX" alone can match a bus stop of that name.
+	p, err := g.search(ctx, area, "settlement")
+	if errors.Is(err, errAreaNotFound) {
+		p, err = g.search(ctx, area, "")
+	}
+
+	if err != nil {
+		return place{}, err
+	}
+
+	g.cache[key] = p
+
+	return p, nil
+}
+
+// search asks Nominatim once (at most one request a second); featureType narrows the kind of
+// place. The caller holds g.mu.
+func (g *geocoder) search(ctx context.Context, area, featureType string) (place, error) {
 	if wait := time.Second - time.Since(g.last); wait > 0 {
 		time.Sleep(wait)
 	}
@@ -115,6 +133,9 @@ func (g *geocoder) lookup(ctx context.Context, area string) (place, error) {
 	g.last = time.Now()
 
 	q := url.Values{"q": {area}, "format": {"json"}, "limit": {"1"}}
+	if featureType != "" {
+		q.Set("featureType", featureType)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, g.endpoint+"?"+q.Encode(), http.NoBody)
 	if err != nil {
@@ -158,13 +179,10 @@ func (g *geocoder) lookup(ctx context.Context, area string) (place, error) {
 		}
 	}
 
-	p := place{
+	return place{
 		Name: h.DisplayName, Lat: f[0], Lon: f[1],
 		BBox: grid.BoundingBox{MinLat: f[2], MaxLat: f[3], MinLon: f[4], MaxLon: f[5]},
-	}
-	g.cache[key] = p
-
-	return p, nil
+	}, nil
 }
 
 // gridRequest is the map-grid part of the scrape form.
@@ -235,7 +253,7 @@ func (s *Server) resolveGrid(ctx context.Context, req gridRequest) (GridSpec, st
 
 	cells := len(grid.GenerateCells(box, req.CellKm))
 	if cells == 0 {
-		return GridSpec{}, "", errors.New("the area is smaller than one square; pick smaller squares")
+		return GridSpec{}, "", errors.New("the area is smaller than one square: pick smaller squares, or cover a radius around it")
 	}
 
 	return GridSpec{Area: req.Area, BBox: formatBBox(box), CellKm: req.CellKm, Cells: cells}, label, nil

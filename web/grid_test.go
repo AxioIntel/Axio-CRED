@@ -27,6 +27,20 @@ func fakeNominatim(t *testing.T, calls *atomic.Int32) *httptest.Server {
 			return
 		}
 
+		// A landmark is only found without the settlement filter, and is a point.
+		if strings.Contains(r.URL.Query().Get("q"), "Bus stop") {
+			if r.URL.Query().Get("featureType") == "settlement" {
+				_, _ = w.Write([]byte(`[]`))
+			} else {
+				_, _ = w.Write([]byte(`[{"lat":"29.7673","lon":"-95.3677","display_name":"Bus stop",` +
+					`"boundingbox":["29.7672","29.7674","-95.3678","-95.3676"]}]`))
+			}
+
+			return
+		}
+
+		assert.Equal(t, "settlement", r.URL.Query().Get("featureType"))
+
 		_, _ = w.Write([]byte(`[{"lat":"30.2711","lon":"-97.7437","display_name":"Austin, Travis County, Texas, United States",` +
 			`"boundingbox":["30.0987","30.5169","-97.9384","-97.5614"]}]`))
 	}))
@@ -84,6 +98,13 @@ func TestGridRadiusAndExactBox(t *testing.T) {
 
 	_, _, err = srv.resolveGrid(t.Context(), gridRequest{BBox: "30.12,-97.95,30.10,-97.93", CellKm: 1})
 	require.Error(t, err)
+
+	_, _, err = srv.resolveGrid(t.Context(), gridRequest{Area: "Bus stop", CellKm: 2})
+	require.ErrorContains(t, err, "cover a radius")
+
+	spec, _, err = srv.resolveGrid(t.Context(), gridRequest{Area: "Bus stop", RadiusKm: 5, CellKm: 2})
+	require.NoError(t, err)
+	assert.Equal(t, 25, spec.Cells)
 }
 
 func postScrape(t *testing.T, srv *Server, form url.Values) *httptest.ResponseRecorder {
