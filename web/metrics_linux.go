@@ -62,6 +62,7 @@ func hostStats(dataFolder string) (hostSample, bool) {
 	}
 
 	var fs syscall.Statfs_t
+
 	if dataFolder == "" {
 		dataFolder = "/"
 	}
