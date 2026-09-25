@@ -169,6 +169,16 @@ func (s *Server) sampleMetrics(ctx context.Context) {
 }
 
 // resultsPerSearch is roughly how many listings one search yields at a depth (Google caps ~120).
+// expectedRows is a rough size for a job: searches x results a search gives at its depth, or for
+// a map grid, squares x the few new listings a square adds once its neighbours overlap.
+func expectedRows(job *Job) int {
+	if g := job.Data.Grid; g != nil {
+		return len(job.Data.Keywords) * g.Cells * resultsPerCell
+	}
+
+	return len(job.Data.Keywords) * resultsPerSearch(job.Data.Depth)
+}
+
 func resultsPerSearch(depth int) int {
 	switch {
 	case depth <= 1:
@@ -204,7 +214,7 @@ func (s *Server) jobProgress(job *Job, now time.Time) *JobProgress {
 
 	p := &JobProgress{
 		ID: job.ID, Name: job.Name, Searches: len(job.Data.Keywords), Rows: rows,
-		Expected:   len(job.Data.Keywords) * resultsPerSearch(job.Data.Depth),
+		Expected:   expectedRows(job),
 		LastRowAgo: now.Sub(st.lastRow).Truncate(time.Second),
 	}
 

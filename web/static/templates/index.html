@@ -44,6 +44,49 @@
                         <p class="hint">Every search runs in every place: "dentist" × "Austin TX" becomes "dentist in Austin TX". Leave empty to run the searches as typed.</p>
                     </div>
 
+                    <details class="section" id="grid-section">
+                        <summary>Map grid: 2,000+ results from one city</summary>
+                        <div class="section-body">
+                            <label class="check"><input type="checkbox" id="grid" name="grid" class="grid-in"> Split one city into squares and run every search in each square</label>
+                            <p class="hint">Google shows at most ~120 results for a search. The grid runs each search once per square, zoomed in, and keeps each business once. Leave "Where" empty when this is on.</p>
+                            <div class="field">
+                                <label for="grid_area">City or area</label>
+                                <input type="text" id="grid_area" name="grid_area" class="grid-in" placeholder="Austin, TX">
+                            </div>
+                            <div class="row2">
+                                <div class="field">
+                                    <label for="grid_radius">Cover</label>
+                                    <select id="grid_radius" name="grid_radius" class="grid-in">
+                                        <option value="0" selected>The whole city outline</option>
+                                        <option value="5">5 km around the centre</option>
+                                        <option value="10">10 km around the centre</option>
+                                        <option value="15">15 km around the centre</option>
+                                        <option value="25">25 km around the centre</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label for="grid_cell">Square size</label>
+                                    <select id="grid_cell" name="grid_cell" class="grid-in">
+                                        <option value="1">1 km (dense downtowns)</option>
+                                        <option value="2" selected>2 km</option>
+                                        <option value="3">3 km</option>
+                                        <option value="5">5 km (suburbs, fast)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label for="grid_bbox">Or an exact box <span class="opt">(optional: minLat,minLon,maxLat,maxLon)</span></label>
+                                <input type="text" id="grid_bbox" name="grid_bbox" class="grid-in" placeholder="30.10,-97.95,30.52,-97.56">
+                            </div>
+                            <div id="grid-preview"
+                                 hx-get="/grid/preview"
+                                 hx-include="#keywords, #grid_area, #grid_radius, #grid_cell, #grid_bbox"
+                                 hx-trigger="change from:.grid-in, keyup changed delay:900ms from:#grid_area, keyup changed delay:900ms from:#grid_bbox"
+                                 hx-swap="innerHTML"><p class="hint">Type a city to see how many squares and searches it makes.</p></div>
+                            <p class="hint">"Results per search" applies to each square; ~20 or ~60 is usually enough. Give a grid job a long "Stop after".</p>
+                        </div>
+                    </details>
+
                     <div class="row2">
                         <div class="field">
                             <label for="depth">Results per search</label>

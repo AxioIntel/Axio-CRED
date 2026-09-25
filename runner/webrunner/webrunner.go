@@ -17,6 +17,7 @@ import (
 
 	"github.com/AxioIntel/Axio-CRED/deduper"
 	"github.com/AxioIntel/Axio-CRED/exiter"
+	"github.com/AxioIntel/Axio-CRED/grid"
 	"github.com/AxioIntel/Axio-CRED/runner"
 	"github.com/AxioIntel/Axio-CRED/tlmt"
 	"github.com/AxioIntel/Axio-CRED/web"
@@ -328,25 +329,7 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 	dedup := deduper.New()
 	exitMonitor := exiter.New()
 
-	seedJobs, err := runner.CreateSeedJobs(
-		job.Data.FastMode,
-		job.Data.Lang,
-		strings.NewReader(taggedSearches(job.Data.Keywords)),
-		job.Data.Depth,
-		job.Data.Email,
-		coords,
-		job.Data.Zoom,
-		func() float64 {
-			if job.Data.Radius <= 0 {
-				return 10000 // 10 km
-			}
-
-			return float64(job.Data.Radius)
-		}(),
-		dedup,
-		exitMonitor,
-		w.cfg.ExtraReviews || job.Data.ExtraReviews,
-	)
+	seedJobs, err := w.seedJobs(job, coords, dedup, exitMonitor)
 	if err != nil {
 		job.Status = web.StatusFailed
 
@@ -403,6 +386,51 @@ func (w *webrunner) scrapeJob(ctx context.Context, job *web.Job) error {
 	job.Status = web.StatusOK
 
 	return w.svc.Update(ctx, job)
+}
+
+// seedJobs are a job's first scrape jobs: one per search, or with a map grid one per search per
+// square.
+func (w *webrunner) seedJobs(job *web.Job, coords string, dedup deduper.Deduper, exitMonitor exiter.Exiter) ([]scrapemate.IJob, error) {
+	extraReviews := w.cfg.ExtraReviews || job.Data.ExtraReviews
+
+	if g := job.Data.Grid; g != nil {
+		box, err := grid.ParseBoundingBox(g.BBox)
+		if err != nil {
+			return nil, err
+		}
+
+		return runner.CreateGridSeedJobs(
+			job.Data.Lang,
+			strings.NewReader(taggedSearches(job.Data.Keywords)),
+			job.Data.Depth,
+			job.Data.Email,
+			box,
+			g.CellKm,
+			job.Data.Zoom,
+			dedup,
+			exitMonitor,
+			extraReviews,
+		)
+	}
+
+	radius := 10000.0 // 10 km
+	if job.Data.Radius > 0 {
+		radius = float64(job.Data.Radius)
+	}
+
+	return runner.CreateSeedJobs(
+		job.Data.FastMode,
+		job.Data.Lang,
+		strings.NewReader(taggedSearches(job.Data.Keywords)),
+		job.Data.Depth,
+		job.Data.Email,
+		coords,
+		job.Data.Zoom,
+		radius,
+		dedup,
+		exitMonitor,
+		extraReviews,
+	)
 }
 
 func defaultSetupMate(cfg *runner.Config) func(context.Context, io.Writer, *web.Job) (mateRunner, error) {
@@ -599,7 +627,7 @@ func (w *webrunner) afterJob(ctx context.Context, job *web.Job) {
 		return
 	}
 
-	if job.Status != web.StatusOK || strings.HasPrefix(job.Name, retryPrefix) {
+	if job.Status != web.StatusOK || strings.HasPrefix(job.Name, retryPrefix) || job.Data.Grid != nil {
 		return
 	}
 

@@ -189,3 +189,4 @@ td input.note { min-width: 160px; }
 .metrics .m-slow .state { color: var(--amber); }
 .metrics .m-stalled .state { color: var(--red); }
 .metrics .m-note { color: var(--amber); }
+.error-text { color: var(--red); }

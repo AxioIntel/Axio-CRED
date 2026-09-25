@@ -35,12 +35,14 @@ type Server struct {
 	saleshandy *saleshandy.Client
 	shConfig   *saleshandy.Config
 	metrics    metricsState
+	geocode    *geocoder
 }
 
 func New(svc *Service, addr string, opts ...Option) (*Server, error) {
 	ans := Server{
-		svc:  svc,
-		tmpl: make(map[string]*template.Template),
+		svc:     svc,
+		tmpl:    make(map[string]*template.Template),
+		geocode: newGeocoder(),
 		srv: &http.Server{
 			Addr:              addr,
 			ReadHeaderTimeout: 10 * time.Second,
@@ -66,6 +68,7 @@ func New(svc *Service, addr string, opts ...Option) (*Server, error) {
 	ans.registerLeadRoutes(mux)
 	ans.registerSaleshandyRoutes(mux)
 	mux.HandleFunc("GET /metrics", ans.metricsPartial)
+	mux.HandleFunc("GET /grid/preview", ans.gridPreview)
 	mux.HandleFunc("POST /rerun", func(w http.ResponseWriter, r *http.Request) {
 		ans.rerun(w, requestWithID(r))
 	})
@@ -326,10 +329,46 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 	}
 
 	newJob.Data.Keywords = expandSearches(keywordsStr[0], r.Form.Get("locations"))
+
+	// The map grid: every search runs once per square of one city, instead of once per place.
+	if r.Form.Get("grid") == "on" {
+		if strings.TrimSpace(r.Form.Get("locations")) != "" {
+			http.Error(w, `use "Where" or the map grid, not both`, http.StatusUnprocessableEntity)
+
+			return
+		}
+
+		req, gerr := gridRequestFromForm(r.Form.Get)
+		if gerr != nil {
+			http.Error(w, gerr.Error(), http.StatusUnprocessableEntity)
+
+			return
+		}
+
+		spec, _, gerr := s.resolveGrid(r.Context(), req)
+		if gerr != nil {
+			http.Error(w, gerr.Error(), http.StatusUnprocessableEntity)
+
+			return
+		}
+
+		if n := len(newJob.Data.Keywords) * spec.Cells; n > maxGridSearches {
+			http.Error(w, fmt.Sprintf("%d map searches is over the %d limit: pick bigger squares or a radius", n, maxGridSearches), http.StatusUnprocessableEntity)
+
+			return
+		}
+
+		newJob.Data.Grid = &spec
+	}
+
 	if newJob.Name == "" && len(newJob.Data.Keywords) > 0 {
 		newJob.Name = newJob.Data.Keywords[0]
 		if n := len(newJob.Data.Keywords); n > 1 {
 			newJob.Name += fmt.Sprintf(" (+%d more)", n-1)
+		}
+
+		if g := newJob.Data.Grid; g != nil {
+			newJob.Name += fmt.Sprintf(" · grid %s (%d squares)", g.Area, g.Cells)
 		}
 	}
 
@@ -340,6 +379,10 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid zoom", http.StatusUnprocessableEntity)
 
 		return
+	}
+
+	if newJob.Data.Grid != nil {
+		newJob.Data.Zoom = zoomForCell(newJob.Data.Grid.CellKm)
 	}
 
 	if r.Form.Get("fastmode") == "on" {

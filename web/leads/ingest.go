@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -126,7 +127,7 @@ func parseMapsCSV(r io.Reader) ([]Lead, error) {
 			Website:  get(rec, "website"),
 			Address:  get(rec, "address"),
 			Link:     get(rec, "link"),
-			Query:    get(rec, "input_id"),
+			Query:    searchOf(get(rec, "input_id")),
 		}
 
 		l.Rating, _ = strconv.ParseFloat(get(rec, "review_rating"), 64)
@@ -169,4 +170,12 @@ func addressParts(raw string) (city, state, country string) {
 	}
 
 	return a.City, a.State, a.Country
+}
+
+// gridSuffix is what a map-grid job adds to each search's id: "-" and the square's UUID.
+var gridSuffix = regexp.MustCompile(`-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// searchOf is the search a listing came from, without a map-grid square's id.
+func searchOf(inputID string) string {
+	return gridSuffix.ReplaceAllString(inputID, "")
 }

@@ -170,3 +170,20 @@ func TestTheWatchdogLeavesAProgressingJobAlone(t *testing.T) {
 // nl is a line break, kept out of string literals.
 const nl = `
 `
+
+func TestAGridJobSeedsOneSearchPerSquare(t *testing.T) {
+	w := &webrunner{cfg: &runner.Config{}}
+	job := &web.Job{ID: "g", Data: web.JobData{
+		Keywords: []string{"dentist", "orthodontist"}, Lang: "en", Depth: 1, Zoom: 15,
+		Grid: &web.GridSpec{Area: "x", BBox: "30.10,-97.95,30.12,-97.93", CellKm: 1, Cells: 4},
+	}}
+
+	seeds, err := w.seedJobs(job, "", nil, nil)
+	require.NoError(t, err)
+	assert.Len(t, seeds, 8, "2 searches x 4 squares")
+
+	job.Data.Grid = nil
+	seeds, err = w.seedJobs(job, "", nil, nil)
+	require.NoError(t, err)
+	assert.Len(t, seeds, 2)
+}

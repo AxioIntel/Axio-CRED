@@ -255,3 +255,9 @@ func find(t *testing.T, ls []Lead, name string) Lead {
 
 	return Lead{}
 }
+
+func TestSearchOfDropsAGridSquaresID(t *testing.T) {
+	assert.Equal(t, "dentist", searchOf("dentist-0b5f7d8e-3c1a-4f2e-9a6b-7d8e9f0a1b2c"))
+	assert.Equal(t, "dentist in Austin TX", searchOf("dentist in Austin TX"))
+	assert.Equal(t, "24-hour locksmith", searchOf("24-hour locksmith"))
+}
