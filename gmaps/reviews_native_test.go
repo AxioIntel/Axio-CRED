@@ -11,8 +11,8 @@ import (
 
 func TestNativeIncrementalReviewMerge(t *testing.T) {
 	index := make(map[string]int)
-	rows := mergeDOMReviews(nil, []DOMReview{{ReviewID: "one", AuthorName: "Same name", Text: "short"}, {ReviewID: "two", AuthorName: "Same name", Text: "short"}}, index)
-	rows = mergeDOMReviews(rows, []DOMReview{{ReviewID: "one", Text: "expanded original review", ReplyText: "Owner response", AuthorURL: "https://www.google.com/maps/contrib/123"}}, index)
+	rows := mergeDOMReviews(nil, []DOMReview{{ReviewID: "one", AuthorName: "Same name", Text: "short"}, {ReviewID: "two", AuthorName: "Same name", Text: "short"}}, index, 0)
+	rows = mergeDOMReviews(rows, []DOMReview{{ReviewID: "one", Text: "expanded original review", ReplyText: "Owner response", AuthorURL: "https://www.google.com/maps/contrib/123"}}, index, 0)
 	require.Len(t, rows, 2)
 	assert.Equal(t, "expanded original review", rows[0].Text)
 	assert.Equal(t, "Same name", rows[0].AuthorName)
@@ -20,13 +20,17 @@ func TestNativeIncrementalReviewMerge(t *testing.T) {
 	assert.NotEmpty(t, rows[0].AuthorURL)
 }
 
-func TestNativeSupplementIncompleteRPC(t *testing.T) {
-	assert.True(t, shouldSupplementRPC(20, 1169))
-	assert.True(t, shouldSupplementRPC(0, 0))
-	assert.False(t, shouldSupplementRPC(1169, 1169))
-	assert.False(t, shouldSupplementRPC(5000, 10000))
-	assert.False(t, shouldSupplementRPC(20, 0))
-	assert.LessOrEqual(t, reviewPageBudget(1000000)*20, 5000)
+func TestNativePageBudgetNeverExceedsTheCap(t *testing.T) {
+	// Whether RPC is supplemented from the public page is the collector's call now
+	// (review_collector_test.go); the page budget still never outruns the cap.
+	assert.LessOrEqual(t, reviewPageBudget(1000000, defaultReviewCap)*20, defaultReviewCap)
+}
+
+func TestReviewPageBudgetHonoursAConfigurableCap(t *testing.T) {
+	assert.Equal(t, 2500, reviewPageBudget(0, 50000))
+	assert.LessOrEqual(t, reviewPageBudget(10000, 50000)*20, 50000)
+	assert.GreaterOrEqual(t, reviewPageBudget(10000, 50000)*20, 10000)
+	assert.Equal(t, 1, reviewPageBudget(0, 5))
 }
 
 func TestNativeStarOnlyAndDateEvidence(t *testing.T) {
@@ -41,9 +45,15 @@ func TestNativeStarOnlyAndDateEvidence(t *testing.T) {
 }
 
 func TestNativePrimaryEnrichmentBeforeDeduplication(t *testing.T) {
+	// The enrichment rule `dedupeDOMReviewsAgainstPrimary` used to apply is now `reviewSet.add`'s
+	// (see reviewset_test.go); this pins that a field the incoming review never carried, like the
+	// post time, survives enrichment untouched.
 	primary := []Review{{ReviewID: "same", Name: "A", Description: "Short", PostedAtUnixMicros: 1700000000000000}}
-	remaining := dedupeDOMReviewsAgainstPrimary(primary, []Review{{ReviewID: "same", Description: "A longer expanded review", AuthorURL: "https://www.google.com/maps/contrib/123", ReplyText: "Owner reply"}})
-	assert.Empty(t, remaining)
+	set := newReviewSet(primary, 0)
+	added := set.add(&Review{ReviewID: "same", Description: "A longer expanded review",
+		AuthorURL: "https://www.google.com/maps/contrib/123", ReplyText: "Owner reply"})
+	assert.False(t, added)
+	assert.Empty(t, set.extended())
 	assert.Equal(t, "A longer expanded review", primary[0].Description)
 	assert.Equal(t, "Owner reply", primary[0].ReplyText)
 	assert.Equal(t, int64(1700000000000000), primary[0].PostedAtUnixMicros)
@@ -56,10 +66,10 @@ func TestNativeCollectionCapAndRepeatPass(t *testing.T) {
 	}
 
 	index := make(map[string]int)
-	rows := mergeDOMReviews(nil, incoming, index)
-	require.Len(t, rows, 5000)
-	rows = mergeDOMReviews(rows, incoming, index)
-	assert.Len(t, rows, 5000)
+	rows := mergeDOMReviews(nil, incoming, index, 0)
+	require.Len(t, rows, defaultReviewCap)
+	rows = mergeDOMReviews(rows, incoming, index, 0)
+	assert.Len(t, rows, defaultReviewCap)
 }
 
 func BenchmarkNativeIncrementalMerge(b *testing.B) {
@@ -74,6 +84,6 @@ func BenchmarkNativeIncrementalMerge(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		mergeDOMReviews(rows, rows, index)
+		mergeDOMReviews(rows, rows, index, 0)
 	}
 }

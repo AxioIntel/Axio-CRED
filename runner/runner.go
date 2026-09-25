@@ -86,6 +86,11 @@ type Config struct {
 	BrowserPoolSize          int
 	MaxPagesPerBrowser       int
 
+	// The extended review collection (`-extra-reviews`). Zero values mean gmaps' defaults.
+	ReviewBudget    time.Duration
+	ReviewMax       int
+	ReviewPageDelay time.Duration
+
 	// Grid scraping — divide a bounding box into cells to bypass the ~120
 	// results-per-search limit imposed by Google Maps.
 	GridBBox   string  // "minLat,minLon,maxLat,maxLon"
@@ -145,6 +150,9 @@ func ParseConfig() *Config {
 	flag.Float64Var(&cfg.GridCellKm, "grid-cell", 1.0, "grid cell size in km [default: 1.0]. Use with -grid-bbox")
 	flag.IntVar(&cfg.BrowserPoolSize, "browser-pool-size", 0, "number of browser contexts for JS mode; 0 derives from concurrency and pages-per-browser")
 	flag.IntVar(&cfg.MaxPagesPerBrowser, "pages-per-browser", 1, "maximum concurrent pages per browser context in JS mode")
+	flag.DurationVar(&cfg.ReviewBudget, "review-budget", 0, "wall clock for one place's review collection; keep under any outer timeout [default: 16m]")
+	flag.IntVar(&cfg.ReviewMax, "review-max", 0, "most reviews kept per place beyond the inline ones [default: 5000]")
+	flag.DurationVar(&cfg.ReviewPageDelay, "review-page-delay", 0, "pause between two review pages [default: 500ms]")
 	flag.BoolVar(&cfg.Version, "version", false, "returns the version of the tool")
 
 	flag.Parse()

@@ -29,6 +29,7 @@ type GmapJob struct {
 	ExitMonitor             exiter.Exiter
 	ExtractExtraReviews     bool
 	WriterManagedCompletion bool
+	ReviewConfig            ReviewConfig
 }
 
 func NewGmapJob(
@@ -118,6 +119,13 @@ func WithExtraReviews() GmapJobOptions {
 	}
 }
 
+// WithReviewConfig sets how every place this job finds collects its reviews.
+func WithReviewConfig(cfg ReviewConfig) GmapJobOptions {
+	return func(j *GmapJob) {
+		j.ReviewConfig = cfg
+	}
+}
+
 func WithWriterManagedCompletion() GmapJobOptions {
 	return func(j *GmapJob) {
 		j.WriterManagedCompletion = true
@@ -169,6 +177,8 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 			jopts = append(jopts, WithPlaceJobWriterManagedCompletion())
 		}
 
+		jopts = append(jopts, WithPlaceJobReviewConfig(j.ReviewConfig))
+
 		placeJob := NewPlaceJob(j.ID, j.LangCode, resp.URL, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
 
 		next = append(next, placeJob)
@@ -183,6 +193,8 @@ func (j *GmapJob) Process(ctx context.Context, resp *scrapemate.Response) (any, 
 				if j.WriterManagedCompletion {
 					jopts = append(jopts, WithPlaceJobWriterManagedCompletion())
 				}
+
+				jopts = append(jopts, WithPlaceJobReviewConfig(j.ReviewConfig))
 
 				nextJob := NewPlaceJob(j.ID, j.LangCode, href, j.ExtractEmail, j.ExtractExtraReviews, jopts...)
 
