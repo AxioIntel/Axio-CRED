@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Practo · AxioCRED</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+    <script src="/static/js/practo.js" defer></script>
+</head>
+<body class="workspace">
+    {{template "sidebar" "practo"}}
+    <main class="page research-page" id="main-content">
+        <div class="page-heading"><div><p class="eyebrow">Practo</p><h1>A workspace for doctor &amp; clinic profiles.</h1><p>Import a list you have permission to use, then organize it with your leads.</p></div><a class="btn" href="/leads?source=practo">View Practo leads</a></div>
+        <div class="research-layout">
+            <section class="card" aria-labelledby="import-title"><div class="card-head"><h2 id="import-title">Import profiles</h2><span class="chip chip-ok">CSV import</span></div><div class="card-body">
+                <p class="intro-copy">Start with the template, add one row per profile, and upload your file. The whole file is checked before anything is saved.</p>
+                <a class="btn" href="/practo/template.csv">Download CSV template</a>
+                <form id="practo-import" class="import-form" enctype="multipart/form-data" action="/practo/import" method="post">
+                    <div class="field"><label for="practo-file">Profile list</label><input id="practo-file" type="file" name="file" accept=".csv,text/csv" required {{if not .Enabled}}disabled{{end}}><p class="hint">Up to 1,000 rows and 2 MB. Required: name and profile_url.</p></div>
+                    <button class="btn btn-primary" type="submit" {{if not .Enabled}}disabled{{end}}>Import profiles</button>
+                    <p id="import-result" class="form-result" role="status" aria-live="polite">{{if not .Enabled}}The lead list is not enabled on this server.{{end}}</p>
+                </form>
+                <div class="import-details"><h3>What happens to your records</h3><ul><li>Every record keeps its Practo profile link and source label.</li><li>Importing the same profile again updates its details.</li><li>Existing notes and contact suppression stay in place.</li><li>No website is fetched and no message is sent.</li></ul></div>
+            </div></section>
+            <aside class="research-context"><section class="readiness"><span class="status-dot" aria-hidden="true"></span><h2>Live collection is not connected</h2><p>This page imports existing data. Searching Practo and collecting profiles automatically require a supported access route.</p><a href="https://help.practo.com/partner-api/practo-api-program-terms-and-conditions/" target="_blank" rel="noopener noreferrer">Practo API access terms</a></section>
+                <section class="workflow-note"><h2>What the list can include</h2><p>Name, profile URL, specialty, published business phone and email, website, address, city, state and country.</p><p class="hint">Importing records does not verify their accuracy or link a doctor across multiple clinics. Those research features are planned.</p></section>
+                <a class="research-next" href="/research?source=practo"><strong>Plan a deeper research task</strong><span>Prepare the fields and evidence you need in AI Research.</span></a>
+            </aside>
+        </div>
+    </main>
+</body>
+</html>

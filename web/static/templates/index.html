@@ -7,20 +7,11 @@
     <link rel="stylesheet" href="/static/css/app.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.6/htmx.min.js"></script>
 </head>
-<body>
-    <header class="topbar">
-        <div class="brand">Axio<span>CRED</span> Leads</div>
-        <nav class="tabs">
-            <a href="/" class="active">Scrape</a>
-            <a href="/leads">Leads</a>
-            <a href="/spec">AxioIntel spec</a>
-        </nav>
-        <div class="spacer"></div>
-        <a class="small-link" href="/api/docs" target="_blank" rel="noopener noreferrer">API</a>
-    </header>
+<body class="workspace">
+    {{template "sidebar" "scrape"}}
     <div id="metrics" hx-get="/metrics" hx-trigger="load, every 5s" hx-swap="innerHTML"></div>
 
-    <main class="page grid-jobs">
+    <main id="main-content" class="page grid-jobs">
         <section class="card">
             <div class="card-head"><h2>Google Maps scraper</h2><span class="chip">google_maps</span></div>
             <div class="card-body">

@@ -1,0 +1,18 @@
+{{define "sidebar"}}
+<a class="skip-link" href="#main-content">Skip to content</a>
+<aside class="sidebar">
+    <a class="brand" href="/" aria-label="AxioCRED home">Axio<span>CRED</span><small>Collection workspace</small></a>
+    <nav aria-label="Main navigation">
+        <p class="nav-label">Collection</p>
+        <a href="/" {{if eq . "scrape"}}aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">◎</span>Google Maps</a>
+        <a href="/leads" {{if eq . "leads"}}aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">▤</span>Leads</a>
+        <p class="nav-label">Research</p>
+        <a href="/research" {{if eq . "research"}}aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">✧</span>AI Research<span class="nav-state">Plan</span></a>
+        <a href="/practo" {{if eq . "practo"}}aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">＋</span>Practo<span class="nav-state">Import</span></a>
+        <p class="nav-label">Workspace</p>
+        <a href="/spec" {{if eq . "spec"}}aria-current="page"{{end}}><span class="nav-icon" aria-hidden="true">≡</span>AxioIntel spec</a>
+        <a href="/api/docs" target="_blank" rel="noopener noreferrer"><span class="nav-icon" aria-hidden="true">↗</span>API reference</a>
+    </nav>
+    <div class="sidebar-footer">Collect. Verify. Research.<br><span>Keep the source behind every lead.</span></div>
+</aside>
+{{end}}

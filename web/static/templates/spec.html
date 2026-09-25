@@ -7,20 +7,11 @@
     <link rel="stylesheet" href="/static/css/app.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.6/htmx.min.js"></script>
 </head>
-<body>
-    <header class="topbar">
-        <div class="brand">Axio<span>CRED</span> Leads</div>
-        <nav class="tabs">
-            <a href="/">Scrape</a>
-            <a href="/leads">Leads</a>
-            <a href="/spec" class="active">AxioIntel spec</a>
-        </nav>
-        <div class="spacer"></div>
-        <a class="small-link" href="/api/docs" target="_blank" rel="noopener noreferrer">API</a>
-    </header>
+<body class="workspace">
+    {{template "sidebar" "spec"}}
     <div id="metrics" hx-get="/metrics" hx-trigger="load, every 5s" hx-swap="innerHTML"></div>
 
-    <main class="page spec">
+    <main id="main-content" class="page spec">
         <h1>AxioIntel ↔ AxioCRED: the primary-scraper spec</h1>
         <p class="muted">How AxioIntel will use AxioCRED's collector as its main source of Google reviews, what already exists, and what has to be true before it switches. Written 25 Sep 2026.</p>
         <div class="toc">
