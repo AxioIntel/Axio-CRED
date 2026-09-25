@@ -1,0 +1,53 @@
+#cloud-config
+# The collector's machine, set up on first boot. Paste this whole file into "Cloud config" when
+# creating the server (Hetzner Cloud CPX22, Ubuntu 24.04, with your SSH key selected). It:
+#   - makes a `collector` user that logs in with the same SSH key as root, and turns off
+#     password logins;
+#   - installs Docker, Python 3, git, automatic security updates and fail2ban;
+#   - adds 2 GB of swap, so a Chromium spike cannot take the 4 GB machine down;
+#   - clones Axio-CRED to /opt/axio-cred and builds the `axio-cred-collector` image
+#     (about 10 minutes; progress in /var/log/axio-build.log, "BUILD OK" at the end).
+# Nothing here holds a secret. /etc/axiointel/collector.env and the proxies file are written by
+# hand afterwards (deploy/axiointel/README.md). The machine accepts no inbound traffic but SSH:
+# give it a Hetzner firewall with only 22/tcp in.
+
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - python3
+  - git
+  - unattended-upgrades
+  - fail2ban
+
+users:
+  - name: collector
+    groups: [docker]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+
+ssh_pwauth: false
+
+swap:
+  filename: /swapfile
+  size: 2G
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-axiointel.conf
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin prohibit-password
+
+runcmd:
+  - install -d -m 700 -o collector -g collector /home/collector/.ssh
+  - install -m 600 -o collector -g collector /root/.ssh/authorized_keys /home/collector/.ssh/authorized_keys
+  - systemctl enable --now docker
+  - install -d -m 750 -g docker /etc/axiointel
+  - install -d -m 755 -o collector -g collector /var/lib/axiointel-collector
+  - git clone https://github.com/AxioIntel/Axio-CRED.git /opt/axio-cred
+  - chown -R collector:collector /opt/axio-cred
+  - su - collector -c 'cd /opt/axio-cred && docker build -t axio-cred-collector . && echo BUILD OK' > /var/log/axio-build.log 2>&1
+  - systemctl restart ssh

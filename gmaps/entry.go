@@ -205,10 +205,17 @@ func (e *Entry) IsWebsiteValidForEmail() bool {
 		return false
 	}
 
+	// Pages on these sites belong to the site, not the business: an address found there is theirs.
 	needles := []string{
-		"facebook",
-		"instragram",
-		"twitter",
+		"facebook.",
+		"instagram.",
+		"twitter.",
+		"x.com/",
+		"linkedin.",
+		"tiktok.",
+		"youtube.",
+		"yelp.",
+		"linktr.ee",
 	}
 
 	for i := range needles {

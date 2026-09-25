@@ -19,21 +19,32 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/AxioIntel/Axio-CRED/web/leads"
+	"github.com/AxioIntel/Axio-CRED/web/saleshandy"
+	"github.com/AxioIntel/Axio-CRED/web/whatsapp"
 )
 
 //go:embed static
 var static embed.FS
 
 type Server struct {
-	tmpl map[string]*template.Template
-	srv  *http.Server
-	svc  *Service
+	tmpl       map[string]*template.Template
+	srv        *http.Server
+	svc        *Service
+	leads      *leads.Store
+	saleshandy *saleshandy.Client
+	shConfig   *saleshandy.Config
+	metrics    metricsState
+	geocode    *geocoder
+	whatsapp   *whatsapp.Client
 }
 
-func New(svc *Service, addr string) (*Server, error) {
+func New(svc *Service, addr string, opts ...Option) (*Server, error) {
 	ans := Server{
-		svc:  svc,
-		tmpl: make(map[string]*template.Template),
+		svc:     svc,
+		tmpl:    make(map[string]*template.Template),
+		geocode: newGeocoder(),
 		srv: &http.Server{
 			Addr:              addr,
 			ReadHeaderTimeout: 10 * time.Second,
@@ -49,8 +60,25 @@ func New(svc *Service, addr string) (*Server, error) {
 		return nil, err
 	}
 
+	for _, opt := range opts {
+		opt(&ans)
+	}
+
 	fileServer := http.FileServer(http.FS(staticFS))
 	mux := http.NewServeMux()
+
+	ans.registerLeadRoutes(mux)
+	ans.registerSaleshandyRoutes(mux)
+	ans.registerWhatsAppRoutes(mux)
+	mux.HandleFunc("GET /metrics", ans.metricsPartial)
+	mux.HandleFunc("GET /grid/preview", ans.gridPreview)
+	mux.HandleFunc("POST /rerun", func(w http.ResponseWriter, r *http.Request) {
+		ans.rerun(w, requestWithID(r))
+	})
+	mux.HandleFunc("GET /api/v1/metrics", ans.metricsJSON)
+	mux.HandleFunc("GET /spec", func(w http.ResponseWriter, _ *http.Request) {
+		ans.render(w, "static/templates/spec.html", nil)
+	})
 
 	mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
 	mux.HandleFunc("/scrape", ans.scrape)
@@ -134,6 +162,9 @@ func New(svc *Service, addr string) (*Server, error) {
 		"static/templates/job_row.html",
 		"static/templates/job_view.html",
 		"static/templates/redoc.html",
+		"static/templates/leads.html",
+		"static/templates/leads_table.html",
+		"static/templates/spec.html",
 	}
 
 	for _, key := range tmplsKeys {
@@ -149,6 +180,8 @@ func New(svc *Service, addr string) (*Server, error) {
 }
 
 func (s *Server) Start(ctx context.Context) error {
+	go s.sampleMetricsLoop(ctx)
+
 	go func() {
 		<-ctx.Done()
 
@@ -237,7 +270,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 
 	data := formData{
 		Name:     "",
-		MaxTime:  "10m",
+		MaxTime:  "1h",
 		Keywords: []string{},
 		Language: "en",
 		Zoom:     15,
@@ -245,8 +278,8 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		Radius:   10000,
 		Lat:      "0",
 		Lon:      "0",
-		Depth:    10,
-		Email:    false,
+		Depth:    5,
+		Email:    true,
 	}
 
 	_ = tmpl.Execute(w, data)
@@ -298,14 +331,48 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keywords := strings.Split(keywordsStr[0], "\n")
-	for _, k := range keywords {
-		k = strings.TrimSpace(k)
-		if k == "" {
-			continue
+	newJob.Data.Keywords = expandSearches(keywordsStr[0], r.Form.Get("locations"))
+
+	// The map grid: every search runs once per square of one city, instead of once per place.
+	if r.Form.Get("grid") == "on" {
+		if strings.TrimSpace(r.Form.Get("locations")) != "" {
+			http.Error(w, `use "Where" or the map grid, not both`, http.StatusUnprocessableEntity)
+
+			return
 		}
 
-		newJob.Data.Keywords = append(newJob.Data.Keywords, k)
+		req, gerr := gridRequestFromForm(r.Form.Get)
+		if gerr != nil {
+			http.Error(w, gerr.Error(), http.StatusUnprocessableEntity)
+
+			return
+		}
+
+		spec, _, gerr := s.resolveGrid(r.Context(), req)
+		if gerr != nil {
+			http.Error(w, gerr.Error(), http.StatusUnprocessableEntity)
+
+			return
+		}
+
+		if n := len(newJob.Data.Keywords) * spec.Cells; n > maxGridSearches {
+			http.Error(w, fmt.Sprintf("%d map searches is over the %d limit: pick bigger squares or a radius", n, maxGridSearches), http.StatusUnprocessableEntity)
+
+			return
+		}
+
+		newJob.Data.Grid = &spec
+	}
+
+	if newJob.Name == "" && len(newJob.Data.Keywords) > 0 {
+		newJob.Name = newJob.Data.Keywords[0]
+		if n := len(newJob.Data.Keywords); n > 1 {
+			newJob.Name += fmt.Sprintf(" (+%d more)", n-1)
+		}
+
+		if g := newJob.Data.Grid; g != nil {
+			newJob.Name += fmt.Sprintf(" · grid %s (%d squares)", g.Area, g.Cells)
+		}
 	}
 
 	newJob.Data.Lang = r.Form.Get("lang")
@@ -315,6 +382,10 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid zoom", http.StatusUnprocessableEntity)
 
 		return
+	}
+
+	if newJob.Data.Grid != nil {
+		newJob.Data.Zoom = zoomForCell(newJob.Data.Grid.CellKm)
 	}
 
 	if r.Form.Get("fastmode") == "on" {
@@ -338,7 +409,8 @@ func (s *Server) scrape(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newJob.Data.Email = r.Form.Get("email") == "on"
+	// The dashboard always collects the emails on each listing's website; the API still chooses.
+	newJob.Data.Email = true
 
 	proxies := strings.Split(r.Form.Get("proxies"), "\n")
 	if len(proxies) > 0 {
@@ -396,7 +468,82 @@ func (s *Server) getJobs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = tmpl.Execute(w, jobs)
+	_ = tmpl.Execute(w, s.jobRows(r.Context(), jobs))
+}
+
+// jobRow is a job as the job list shows it: with how many leads it found (so far, while running).
+type jobRow struct {
+	Job
+	Leads    int
+	Searches int
+}
+
+func (s *Server) jobRows(ctx context.Context, jobs []Job) []jobRow {
+	var counts map[string]int
+
+	if s.leads != nil {
+		counts, _ = s.leads.JobLeadCounts(ctx)
+	}
+
+	out := make([]jobRow, 0, len(jobs))
+
+	for i := range jobs {
+		row := jobRow{Job: jobs[i], Searches: len(jobs[i].Data.Keywords)}
+
+		if n, ok := counts[jobs[i].ID]; ok {
+			row.Leads = n
+		} else {
+			row.Leads = s.svc.CountRows(jobs[i].ID)
+		}
+
+		out = append(out, row)
+	}
+
+	return out
+}
+
+// expandSearches turns the form's searches and optional locations into the job's keywords: with
+// locations, every search runs in every location ("dentist" x "Austin TX" -> "dentist in Austin
+// TX"); without, each search line runs as typed. Duplicates are dropped.
+func expandSearches(searches, locations string) []string {
+	lines := func(s string) []string {
+		var out []string
+
+		for _, l := range strings.Split(s, "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				out = append(out, l)
+			}
+		}
+
+		return out
+	}
+
+	terms, places := lines(searches), lines(locations)
+	seen := map[string]bool{}
+
+	var out []string
+
+	add := func(k string) {
+		if !seen[strings.ToLower(k)] {
+			seen[strings.ToLower(k)] = true
+
+			out = append(out, k)
+		}
+	}
+
+	for _, t := range terms {
+		if len(places) == 0 {
+			add(t)
+
+			continue
+		}
+
+		for _, p := range places {
+			add(t + " in " + p)
+		}
+	}
+
+	return out
 }
 
 func (s *Server) download(w http.ResponseWriter, r *http.Request) {
@@ -692,4 +839,42 @@ func securityHeaders(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// rerun puts a finished job back in the queue, next in line, to run again from its first search: the way back
+// on track for a job that ended short. Its earlier results stay in the lead list, which merges the
+// two runs.
+func (s *Server) rerun(w http.ResponseWriter, r *http.Request) {
+	id, ok := getIDFromRequest(r)
+	if !ok {
+		http.Error(w, "invalid job id", http.StatusUnprocessableEntity)
+
+		return
+	}
+
+	job, err := s.svc.Get(r.Context(), id.String())
+	if err != nil {
+		http.Error(w, "job not found", http.StatusNotFound)
+
+		return
+	}
+
+	if job.Status == StatusPending || job.Status == StatusWorking {
+		http.Error(w, "the job is already queued or running", http.StatusConflict)
+
+		return
+	}
+
+	// It keeps its place by age, so it runs next: getting a job back on track comes first.
+	job.Status = StatusPending
+
+	if err := s.svc.Update(r.Context(), &job); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
+		return
+	}
+
+	s.Note(fmt.Sprintf("%q queued to run again", job.Name))
+	w.Header().Set("HX-Trigger", "jobs-changed")
+	w.WriteHeader(http.StatusNoContent)
 }

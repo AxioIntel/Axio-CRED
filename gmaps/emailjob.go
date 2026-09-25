@@ -2,13 +2,14 @@ package gmaps
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/google/uuid"
 	"github.com/gosom/scrapemate"
-	"github.com/mcnijman/go-emailaddress"
 
 	"github.com/AxioIntel/Axio-CRED/exiter"
 )
@@ -21,6 +22,9 @@ type EmailExtractJob struct {
 	Entry                   *Entry
 	ExitMonitor             exiter.Exiter
 	WriterManagedCompletion bool
+
+	// fetchPage reads the business's contact-like pages; nil is fetchSitePage. Set by tests.
+	fetchPage pageFetcher
 }
 
 func NewEmailJob(parentID string, entry *Entry, opts ...EmailExtractJobOptions) *EmailExtractJob {
@@ -87,10 +91,12 @@ func (j *EmailExtractJob) Process(ctx context.Context, resp *scrapemate.Response
 		return j.Entry, nil, nil
 	}
 
-	emails := docEmailExtractor(doc)
-	if len(emails) == 0 {
-		emails = regexEmailExtractor(resp.Body)
+	fetch := j.fetchPage
+	if fetch == nil {
+		fetch = fetchSitePage
 	}
+
+	emails := findBusinessEmails(ctx, j.URL, doc, resp.Body, fetch)
 
 	j.Entry.Emails = emails
 
@@ -101,50 +107,28 @@ func (j *EmailExtractJob) ProcessOnFetchError() bool {
 	return true
 }
 
-func docEmailExtractor(doc *goquery.Document) []string {
-	seen := map[string]bool{}
-
-	var emails []string
-
-	doc.Find("a[href^='mailto:']").Each(func(_ int, s *goquery.Selection) {
-		mailto, exists := s.Attr("href")
-		if exists {
-			value := strings.TrimPrefix(mailto, "mailto:")
-			if email, err := getValidEmail(value); err == nil {
-				if !seen[email] {
-					emails = append(emails, email)
-					seen[email] = true
-				}
-			}
-		}
-	})
-
-	return emails
-}
-
-func regexEmailExtractor(body []byte) []string {
-	seen := map[string]bool{}
-
-	var emails []string
-
-	addresses := emailaddress.Find(body, false)
-	for i := range addresses {
-		if !seen[addresses[i].String()] {
-			emails = append(emails, addresses[i].String())
-			seen[addresses[i].String()] = true
-		}
+// BrowserActions fetches the business's front page with a plain, direct request instead of
+// through the browser. The browser carries the run's proxies, and they are only needed for
+// Google: a business's own website does not block us, and proxies billed by traffic would pay
+// for every page of it. This also saves starting a page render for each site.
+//
+// A site that writes its address only with JavaScript is not seen this way; the contact pages
+// were already read the same direct way, and mailto links and Cloudflare-protected addresses
+// are in the served HTML.
+func (j *EmailExtractJob) BrowserActions(ctx context.Context, _ scrapemate.BrowserPage) scrapemate.Response {
+	fetch := j.fetchPage
+	if fetch == nil {
+		fetch = fetchSitePage
 	}
 
-	return emails
-}
+	started := time.Now()
 
-func getValidEmail(s string) (string, error) {
-	email, err := emailaddress.Parse(strings.TrimSpace(s))
+	body, err := fetch(ctx, j.URL)
 	if err != nil {
-		return "", err
+		return scrapemate.Response{URL: j.URL, Error: err}
 	}
 
-	return email.String(), nil
+	return scrapemate.Response{URL: j.URL, StatusCode: http.StatusOK, Body: body, Duration: time.Since(started)}
 }
 
 // normalizeGoogleURL extracts the actual target URL from Google redirect URLs.

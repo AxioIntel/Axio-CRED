@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -54,7 +55,7 @@ func (s *Service) Update(ctx context.Context, job *Job) error {
 }
 
 func (s *Service) SelectPending(ctx context.Context) ([]Job, error) {
-	return s.repo.Select(ctx, SelectParams{Status: StatusPending, Limit: 1})
+	return s.repo.Select(ctx, SelectParams{Status: StatusPending, Limit: 1, Oldest: true})
 }
 
 // csvPath returns the on-disk path of a job's CSV output, rejecting ids that
@@ -78,4 +79,20 @@ func (s *Service) GetCSV(_ context.Context, id string) (string, error) {
 	}
 
 	return datapath, nil
+}
+
+// CountRows is how many result rows a job's CSV holds so far: the live count for a running job,
+// and the fallback for one whose leads are not in the lead list. 0 when there is no file yet.
+func (s *Service) CountRows(id string) int {
+	path, err := s.csvPath(id)
+	if err != nil {
+		return 0
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+
+	return max(bytes.Count(b, []byte("\n"))-1, 0)
 }

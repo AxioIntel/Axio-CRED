@@ -1,0 +1,53 @@
+<div class="table-wrap">
+<table>
+    <thead>
+        <tr>
+            <th><input type="checkbox" aria-label="Tick all on this page" onclick="toggleAll(this)"></th>
+            <th>Business</th>
+            <th>City</th>
+            <th class="num">Rating</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Website</th>
+            <th>Status</th>
+            <th>Note</th>
+            <th>Found</th>
+        </tr>
+    </thead>
+    <tbody>
+    {{range .Leads}}
+        <tr>
+            <td><input type="checkbox" class="pick" value="{{.ID}}" aria-label="Tick {{.Name}}"></td>
+            <td>
+                <div><strong>{{if .Link}}<a href="{{.Link}}" target="_blank" rel="noopener noreferrer">{{.Name}}</a>{{else}}{{.Name}}{{end}}</strong></div>
+                <div class="faint">{{.Category}}{{if eq .Source "practo"}} · Practo{{end}}</div>
+            </td>
+            <td class="nowrap">{{.City}}{{if .State}}<div class="faint">{{.State}}</div>{{end}}</td>
+            <td class="num nowrap">{{if gt .Rating 0.0}}<span class="stars">★</span> {{printf "%.1f" .Rating}}<div class="faint">{{.Reviews}} reviews</div>{{else}}<span class="faint">–</span>{{end}}</td>
+            <td class="email-list">{{range .EmailList}}<a href="mailto:{{.}}">{{.}}</a>{{else}}<span class="faint">–</span>{{end}}</td>
+            <td class="nowrap">{{if .Phone}}<a href="tel:{{.Phone}}">{{.Phone}}</a>{{if .WhatsApp}}<div><a class="wa" href="https://wa.me/{{.WhatsApp}}" target="_blank" rel="noopener noreferrer">WhatsApp chat</a></div>
+                <div class="wa-consent">{{if .WhatsAppAllowed}}<span class="chip chip-ok" title="Opted in {{.WAOptInAt.Format "Jan 2 2006"}}: {{.WAOptInSource}}">WA opted in</span> <a href="#" class="faint" hx-post="/leads/wa-optout" hx-vals='{"id": "{{.ID}}"}' hx-swap="none" hx-confirm="Record that {{.Name}} asked for no more WhatsApp messages?">opt out</a>{{else if not .WAOptOutAt.IsZero}}<span class="chip" title="Opted out {{.WAOptOutAt.Format "Jan 2 2006"}}">WA opted out</span>{{else}}<a href="#" class="faint" hx-post="/leads/wa-optin" hx-vals='{"id": "{{.ID}}"}' hx-swap="none" hx-prompt="How did {{.Name}} agree to WhatsApp messages? (e.g. replied yes to our email, 25 Sep)">record opt-in</a>{{end}}{{if not .WhatsAppAt.IsZero}}<div class="faint">WA sent {{.WhatsAppAt.Format "Jan 2"}}: {{.WATemplate}}</div>{{end}}</div>{{end}}{{else}}<span class="faint">–</span>{{end}}</td>
+            <td>{{if .Website}}<a class="truncate" href="{{.Website}}" target="_blank" rel="noopener noreferrer">{{.Website}}</a>{{else}}<span class="faint">–</span>{{end}}</td>
+            <td>
+                <select class="status" name="status" aria-label="Status of {{.Name}}"
+                        hx-post="/leads/status" hx-vals='{"id": "{{.ID}}"}' hx-swap="none" hx-trigger="change">
+                    {{$cur := .Status}}{{range $.Statuses}}<option value="{{.}}" {{if eq . $cur}}selected{{end}}>{{.}}</option>{{end}}
+                </select>
+            </td>
+            <td>
+                <input class="note" type="text" name="note" value="{{.Note}}" placeholder="Add a note" aria-label="Note on {{.Name}}"
+                       hx-post="/leads/note" hx-vals='{"id": "{{.ID}}"}' hx-swap="none" hx-trigger="change">
+            </td>
+            <td class="nowrap faint">{{.LastSeen.Format "Jan 2"}}{{if gt .Jobs 1}}<div>{{.Jobs}} jobs</div>{{end}}{{if not .SaleshandyAt.IsZero}}<div><span class="chip" title="Sent {{.SaleshandyAt.Format "Jan 2 15:04"}} UTC">Saleshandy: {{.SaleshandySequence}}</span></div>{{end}}</td>
+        </tr>
+    {{else}}
+        <tr><td colspan="10" class="empty">No leads match. Run a job on the Scrape tab, or loosen the filters.</td></tr>
+    {{end}}
+    </tbody>
+</table>
+</div>
+<div class="pager">
+    <span class="muted">{{if .Total}}{{.From}}–{{.To}} of {{.Total}}{{else}}0 leads{{end}}</span>
+    {{if .PrevURL}}<button class="btn btn-sm" hx-get="{{.PrevURL}}" hx-target="#leads-table">← Prev</button>{{end}}
+    {{if .NextURL}}<button class="btn btn-sm" hx-get="{{.NextURL}}" hx-target="#leads-table">Next →</button>{{end}}
+</div>

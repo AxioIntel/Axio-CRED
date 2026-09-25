@@ -18,6 +18,8 @@ const (
 type SelectParams struct {
 	Status string
 	Limit  int
+	// Oldest orders by creation time ascending: a queue runs in the order jobs were added.
+	Oldest bool
 }
 
 type JobRepository interface {
@@ -73,6 +75,8 @@ type JobData struct {
 	ExtraReviews bool          `json:"extra_reviews"`
 	MaxTime      time.Duration `json:"max_time"`
 	Proxies      []string      `json:"proxies"`
+	// Grid, when set, runs every search once per square of one area (see grid.go).
+	Grid *GridSpec `json:"grid,omitempty"`
 }
 
 func (d *JobData) Validate() error {

@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leads · AxioCRED Leads</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.6/htmx.min.js"></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">Axio<span>CRED</span> Leads</div>
+        <nav class="tabs">
+            <a href="/">Scrape</a>
+            <a href="/leads" class="active">Leads</a>
+            <a href="/spec">AxioIntel spec</a>
+        </nav>
+        <div class="spacer"></div>
+        <a class="small-link" href="/api/docs" target="_blank" rel="noopener noreferrer">API</a>
+    </header>
+    <div id="metrics" hx-get="/metrics" hx-trigger="load, every 5s" hx-swap="innerHTML"></div>
+
+    <main class="page">
+        <div class="tiles">
+            <div class="tile"><div class="v">{{.Stats.Total}}</div><div class="k">Leads</div></div>
+            <div class="tile"><div class="v">{{.Stats.WithEmail}}</div><div class="k">With an email</div></div>
+            <div class="tile"><div class="v">{{.Stats.WithPhone}}</div><div class="k">With a phone</div></div>
+            <div class="tile"><div class="v">{{.Stats.Contacted}}</div><div class="k">Worked (not "new")</div></div>
+        </div>
+
+        <section class="card">
+            <div class="card-body">
+                <form id="lead-filters"
+                      hx-get="/leads/table"
+                      hx-target="#leads-table"
+                      hx-trigger="change, keyup changed delay:400ms from:.live, leads-changed from:body"
+                      onsubmit="return false">
+                    {{if .Filter.JobID}}<input type="hidden" name="job" value="{{.Filter.JobID}}">{{end}}
+                    <div class="filters">
+                        <div class="field">
+                            <label for="q">Search</label>
+                            <input type="search" id="q" name="q" class="live" placeholder="Name, email, phone or website" value="{{.Filter.Q}}">
+                        </div>
+                        <div class="field">
+                            <label for="city">City</label>
+                            <input type="text" id="city" name="city" class="live" value="{{.Filter.City}}">
+                        </div>
+                        <div class="field">
+                            <label for="category">Category</label>
+                            <input type="text" id="category" name="category" class="live" value="{{.Filter.Category}}">
+                        </div>
+                        <div class="field">
+                            <label for="status">Status</label>
+                            <select id="status" name="status">
+                                <option value="">Any</option>
+                                {{range .Statuses}}<option value="{{.}}" {{if eq . $.Filter.Status}}selected{{end}}>{{.}}</option>{{end}}
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="min_rating">Rating</label>
+                            <select id="min_rating" name="min_rating">
+                                <option value="">Any</option>
+                                <option value="3">3.0+</option>
+                                <option value="4">4.0+</option>
+                                <option value="4.5">4.5+</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="min_reviews">Reviews</label>
+                            <select id="min_reviews" name="min_reviews">
+                                <option value="">Any</option>
+                                <option value="10">10+</option>
+                                <option value="50">50+</option>
+                                <option value="200">200+</option>
+                                <option value="1000">1,000+</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="sort">Sort</label>
+                            <select id="sort" name="sort">
+                                <option value="newest">Newest</option>
+                                <option value="rating">Rating</option>
+                                <option value="reviews">Reviews</option>
+                                <option value="name">Name</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="filter-checks">
+                        <label class="check"><input type="checkbox" name="has_email" {{if .Filter.HasEmail}}checked{{end}}> Has email</label>
+                        <label class="check"><input type="checkbox" name="has_phone" {{if .Filter.HasPhone}}checked{{end}}> Has phone</label>
+                        <label class="check"><input type="checkbox" name="has_website" {{if .Filter.HasWebsite}}checked{{end}}> Has website</label>
+                        <select name="saleshandy" style="width:auto">
+                            <option value="">Saleshandy: any</option>
+                            <option value="not_sent">Not sent yet</option>
+                            <option value="sent">Already sent</option>
+                        </select>
+                        <select name="whatsapp" style="width:auto">
+                            <option value="">WhatsApp: any</option>
+                            <option value="opted_in" {{if eq .Filter.WhatsApp "opted_in"}}selected{{end}}>Opted in</option>
+                            <option value="sent" {{if eq .Filter.WhatsApp "sent"}}selected{{end}}>Messaged</option>
+                        </select>
+                        <select name="source" style="width:auto">
+                            <option value="">All sources</option>
+                            <option value="google_maps">Google Maps</option>
+                            <option value="practo">Practo</option>
+                        </select>
+                        {{if .Filter.JobID}}<span class="chip">Job: {{if .JobName}}{{.JobName}}{{else}}{{.Filter.JobID}}{{end}}</span> <a href="/leads" class="faint">show all</a>{{end}}
+                    </div>
+                </form>
+            </div>
+
+            <div class="toolbar">
+                <span class="muted">With ticked leads:</span>
+                <select id="bulk-status" style="width:auto">
+                    {{range .Statuses}}<option value="{{.}}">Mark {{.}}</option>{{end}}
+                </select>
+                <button class="btn btn-sm" type="button" onclick="bulkStatus()">Apply</button>
+                <div class="spacer"></div>
+                <span class="muted">Export everything matching the filters:</span>
+                <button class="btn btn-sm" type="button" onclick="exportLeads('csv')">CSV</button>
+                <button class="btn btn-sm" type="button" onclick="exportLeads('xlsx')">Excel</button>
+            </div>
+
+            <div class="toolbar sh-bar">
+                <strong>Saleshandy</strong>
+                <select id="sh-step" style="width:auto;max-width:360px" hx-get="/saleshandy/steps" hx-trigger="load" hx-swap="innerHTML">
+                    <option value="">Loading campaigns…</option>
+                </select>
+                <span class="faint" title="Enforced on the server">Only leads with an email and more than 50 Google reviews · every email verified by Saleshandy</span>
+                <label class="check"><input type="checkbox" id="sh-resend"> Resend already-sent</label>
+                <input type="text" id="sh-tag" placeholder="Extra tag (optional)" style="width:170px">
+                <div class="spacer"></div>
+                <button class="btn btn-sm" type="button" onclick="sendSaleshandy('ticked')">Send ticked</button>
+                <button class="btn btn-sm btn-primary" type="button" onclick="sendSaleshandy('filtered')">Send all matching filters</button>
+            </div>
+            <div id="sh-result" class="sh-result-wrap"></div>
+
+            <div class="toolbar sh-bar wa-bar">
+                <strong>WhatsApp</strong>
+                <select id="wa-template" style="width:auto;max-width:320px" hx-get="/whatsapp/templates" hx-trigger="load" hx-swap="innerHTML" onchange="waVars()">
+                    <option value="">Loading templates…</option>
+                </select>
+                <span id="wa-vars"></span>
+                <span class="faint" title="Enforced on the server">Opted-in leads only · never do_not_contact · once a day at most</span>
+                <div class="spacer"></div>
+                <button class="btn btn-sm" type="button" onclick="sendWhatsApp('ticked')">Send ticked</button>
+                <button class="btn btn-sm btn-primary" type="button" onclick="sendWhatsApp('filtered')">Send to opted-in matching filters</button>
+            </div>
+            <div id="wa-result" class="sh-result-wrap"></div>
+
+            <div id="leads-table" hx-get="/leads/table" hx-include="#lead-filters" hx-trigger="load">
+                <div class="empty">Loading…</div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+    function filterQuery() {
+        var params = new URLSearchParams(new FormData(document.getElementById('lead-filters')));
+        params.delete('page');
+        return params.toString();
+    }
+    function exportLeads(format) {
+        window.location = '/leads/export?format=' + format + '&' + filterQuery();
+    }
+    function bulkStatus() {
+        var ids = Array.prototype.map.call(document.querySelectorAll('input.pick:checked'), function (c) { return c.value; });
+        if (ids.length === 0) { alert('Tick at least one lead first.'); return; }
+        var values = { id: ids, status: document.getElementById('bulk-status').value, bulk: '1' };
+        htmx.ajax('POST', '/leads/status', { values: values, swap: 'none' }).then(function () {
+            htmx.trigger(document.body, 'leads-changed');
+        });
+    }
+    function sendSaleshandy(scope) {
+        var step = document.getElementById('sh-step');
+        if (!step.value) { alert('Choose a campaign first.'); return; }
+        var values = {
+            step_id: step.value,
+            scope: scope,
+            tag: document.getElementById('sh-tag').value
+        };
+        if (document.getElementById('sh-resend').checked) { values.resend = 'on'; }
+        var where = step.options[step.selectedIndex].text;
+        if (scope === 'ticked') {
+            var ids = Array.prototype.map.call(document.querySelectorAll('input.pick:checked'), function (c) { return c.value; });
+            if (ids.length === 0) { alert('Tick at least one lead first.'); return; }
+            values.id = ids;
+            if (!confirm('Send ' + ids.length + ' ticked lead(s) to Saleshandy: ' + where + '?')) { return; }
+        } else {
+            new FormData(document.getElementById('lead-filters')).forEach(function (v, k) { values[k] = v; });
+            var total = document.querySelector('.pager .muted');
+            if (!confirm('Send every lead matching the filters (' + (total ? total.textContent.trim() : '?') + ') to Saleshandy: ' + where + '?\n\nLeads without an email, with 50 or fewer Google reviews, marked do_not_contact, or already sent are skipped. Saleshandy verifies every email.')) { return; }
+        }
+        document.getElementById('sh-result').innerHTML = '<div class="sh-result">Sending…</div>';
+        htmx.ajax('POST', '/leads/saleshandy', { values: values, target: '#sh-result', swap: 'innerHTML' });
+    }
+    document.body.addEventListener('htmx:responseError', function (e) {
+        if (/\/leads\/wa-opt/.test(e.detail.pathInfo.requestPath)) { alert(e.detail.xhr.responseText); }
+    });
+    var waFieldNames = { name: 'Business name', city: 'City', category: 'Category', rating: 'Rating', reviews: 'Review count' };
+    function waVars() {
+        var sel = document.getElementById('wa-template');
+        var opt = sel.options[sel.selectedIndex];
+        var n = opt ? parseInt(opt.getAttribute('data-params') || '0', 10) : 0;
+        var defaults = ['name', 'city', 'category', 'rating', 'reviews'];
+        var html = '';
+        for (var i = 0; i < n; i++) {
+            html += '<label class="faint"> {{"{{"}}' + (i + 1) + '{{"}}"}} <select class="wa-var" style="width:auto">';
+            Object.keys(waFieldNames).forEach(function (k) {
+                html += '<option value="' + k + '"' + (k === defaults[i] ? ' selected' : '') + '>' + waFieldNames[k] + '</option>';
+            });
+            html += '</select></label>';
+        }
+        document.getElementById('wa-vars').innerHTML = html;
+    }
+    function sendWhatsApp(scope) {
+        var sel = document.getElementById('wa-template');
+        if (!sel.value) { alert('Choose an approved template first.'); return; }
+        var values = { template: sel.value, scope: scope,
+            'var': Array.prototype.map.call(document.querySelectorAll('select.wa-var'), function (s) { return s.value; }) };
+        var what = sel.options[sel.selectedIndex].text;
+        if (scope === 'ticked') {
+            var ids = Array.prototype.map.call(document.querySelectorAll('input.pick:checked'), function (c) { return c.value; });
+            if (ids.length === 0) { alert('Tick at least one lead first.'); return; }
+            values.id = ids;
+            if (!confirm('Send the WhatsApp template ' + what + ' to the ticked leads that opted in (' + ids.length + ' ticked)?')) { return; }
+        } else {
+            new FormData(document.getElementById('lead-filters')).forEach(function (v, k) { values[k] = v; });
+            if (!confirm('Send the WhatsApp template ' + what + ' to every OPTED-IN lead matching the filters (at most 100)?
+
+Leads without a recorded opt-in, opted out, do_not_contact, or messaged in the last 24 hours are skipped.')) { return; }
+        }
+        document.getElementById('wa-result').innerHTML = '<div class="sh-result">Sending…</div>';
+        htmx.ajax('POST', '/leads/whatsapp', { values: values, target: '#wa-result', swap: 'innerHTML' });
+    }
+    function toggleAll(box) {
+        document.querySelectorAll('input.pick').forEach(function (c) { c.checked = box.checked; });
+    }
+    </script>
+</body>
+</html>

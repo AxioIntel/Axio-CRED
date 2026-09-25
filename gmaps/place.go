@@ -156,9 +156,23 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPage) scrapemate.Response {
 	var resp scrapemate.Response
 
+	if err := Blocks.Wait(ctx); err != nil {
+		resp.Error = err
+
+		return resp
+	}
+
 	pageResponse, err := page.Goto(j.GetURL(), scrapemate.WaitUntilDOMContentLoaded)
 	if err != nil {
 		resp.Error = err
+
+		return resp
+	}
+
+	if refusedByResponse(pageResponse.StatusCode, page.URL()) {
+		Blocks.Refused()
+
+		resp.Error = ErrGoogleBlocked
 
 		return resp
 	}
@@ -176,10 +190,19 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 
 	raw, err := j.extractJSON(page)
 	if err != nil {
+		// No place data: a refusal page served with a 200 looks exactly like this.
+		if html, cerr := page.Content(); cerr == nil && refusedByContent(html) {
+			Blocks.Refused()
+
+			err = ErrGoogleBlocked
+		}
+
 		resp.Error = err
 
 		return resp
 	}
+
+	Blocks.Loaded()
 
 	if resp.Meta == nil {
 		resp.Meta = make(map[string]any)

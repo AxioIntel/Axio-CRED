@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AxioIntel spec · AxioCRED Leads</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.6/htmx.min.js"></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="brand">Axio<span>CRED</span> Leads</div>
+        <nav class="tabs">
+            <a href="/">Scrape</a>
+            <a href="/leads">Leads</a>
+            <a href="/spec" class="active">AxioIntel spec</a>
+        </nav>
+        <div class="spacer"></div>
+        <a class="small-link" href="/api/docs" target="_blank" rel="noopener noreferrer">API</a>
+    </header>
+    <div id="metrics" hx-get="/metrics" hx-trigger="load, every 5s" hx-swap="innerHTML"></div>
+
+    <main class="page spec">
+        <h1>AxioIntel ↔ AxioCRED: the primary-scraper spec</h1>
+        <p class="muted">How AxioIntel will use AxioCRED's collector as its main source of Google reviews, what already exists, and what has to be true before it switches. Written 25 Sep 2026.</p>
+        <div class="toc">
+            <a href="#status">Where it stands</a>
+            <a href="#shape">How the two connect</a>
+            <a href="#targets">Asking what to collect</a>
+            <a href="#ingest">Sending a collection</a>
+            <a href="#data">Data contract</a>
+            <a href="#modes">Lab and send modes</a>
+            <a href="#gates">Promotion gates</a>
+            <a href="#cutover">Cutover</a>
+            <a href="#rules">Rules that do not move</a>
+        </div>
+
+        <h2 id="status">Where it stands</h2>
+        <table>
+            <tr><th>Piece</th><th>Where</th><th>State</th></tr>
+            <tr><td>Targets endpoint, collector contract tests, one place = one profile</td><td>Axio-Backend #135</td><td><span class="gate done">ready</span>inert until a secret is set</td></tr>
+            <tr><td>scrape.do retired; outage = Apify failing <em>and</em> no collector delivery</td><td>Axio-Backend #136</td><td><span class="gate hold">parked draft</span>waits for the gates below</td></tr>
+            <tr><td>Paid audits wait for the collector (72 h, then credit)</td><td>Axio-Backend #137</td><td><span class="gate hold">parked draft</span>waits for the gates below</td></tr>
+            <tr><td><code>collect.sh</code> asks AxioIntel what to collect</td><td>Axio-CRED #7</td><td><span class="gate done">green</span></td></tr>
+            <tr><td>Review collector: dedupe, wall clock, proxy identities, coverage report, lab mode</td><td>Axio-CRED #8</td><td><span class="gate done">built</span>CI runs once #7 merges</td></tr>
+            <tr><td>Collector VM (Hetzner CPX22, Helsinki)</td><td>2.29.53.229</td><td><span class="gate done">live</span>runs this dashboard; lab mode</td></tr>
+            <tr><td>Proxy pool (Webshare static residential, 20 IPs, flat monthly)</td><td>/etc/axiointel/proxies.txt</td><td><span class="gate done">in place</span>since 25 Sep 2026</td></tr>
+            <tr><td>A week of lab numbers against Apify</td><td>this VM</td><td><span class="gate todo">to do</span></td></tr>
+        </table>
+
+        <h2 id="shape">How the two connect</h2>
+        <p>One direction only. AxioCRED's machine <strong>asks</strong> AxioIntel which places to collect, collects them on its own clock, and <strong>pushes</strong> what it found. AxioIntel never calls, schedules or reaches into AxioCRED. Both requests are signed with one shared secret, so the collector carries a single credential and no sign-in.</p>
+<pre>
+AxioCRED VM (Hetzner, own IP, own account)                AxioIntel (Cloud Run, axiointel project)
+────────────────────────────────────────                  ─────────────────────────────────────────
+cron → collect.sh
+  fetch_targets.py ── GET  /api/collector/targets ───────▶ list of places, collect_next first
+  for each place:
+    collector (-extra-reviews, -review-budget)
+    push_native.py ─── POST /api/ingest/native (parts) ──▶ stored under the place's one profile,
+                                                           sync_runs.source = "native"
+</pre>
+        <p>The leads dashboard you are using is separate from all of this. It never talks to AxioIntel.</p>
+
+        <h2 id="targets">Asking what to collect: <code>GET /api/collector/targets</code></h2>
+        <ul>
+            <li><strong>Auth:</strong> headers <code>X-Axio-Timestamp</code> (Unix seconds) and <code>X-Axio-Signature: sha256=&lt;hex&gt;</code>, the HMAC-SHA256 of <code>"&lt;timestamp&gt;."</code> + the (empty) body under <code>AXIOINTEL_NATIVE_INGEST_SECRET</code>. It must be within 300 s of AxioIntel's clock.</li>
+            <li><strong>Answer:</strong> <code>{generated_at, targets: [{place_id, purpose, title, last_collected_at, collect_next}]}</code>. There is one entry per real place; <code>purpose</code> is the strongest any watcher claims (owned &gt; competitor &gt; audit). Ordered <code>collect_next</code> first (a paid audit waiting), then the longest-waiting.</li>
+            <li><strong>Errors:</strong> 503 when not configured, 401 for a bad signature or stale timestamp.</li>
+            <li><strong>Client:</strong> <code>scripts/fetch_targets.py</code> in Axio-Backend, copied beside <code>collect.sh</code>.</li>
+        </ul>
+
+        <h2 id="ingest">Sending a collection: <code>POST /api/ingest/native</code></h2>
+        <ul>
+            <li><strong>Signed the same way</strong>, over the exact JSON body.</li>
+            <li><strong>One collection = up to 100 parts</strong> of up to 250 reviews each: <code>{collection_id, part, parts, complete, purpose, entry, reviews, collected_seconds?}</code>. Parts can arrive in any order; the collection finishes when all have arrived.</li>
+            <li><strong><code>complete</code> matters:</strong> a partial collection never has its missing reviews treated as removals. <code>collect.sh</code> sends <code>--incomplete</code> whenever the collector's own report says it did not finish (blocked, out of time, count unknown).</li>
+            <li><strong>Profile:</strong> a place already watched through Apify is written into that same profile, compared only with earlier <em>native</em> collections. A place nobody bought gets <code>native/&lt;place_id&gt;</code>. A collection stays in the profile it started in.</li>
+            <li><strong>Client:</strong> <code>scripts/push_native.py</code> in Axio-Backend.</li>
+        </ul>
+
+        <h2 id="data">Data contract</h2>
+        <ul>
+            <li><code>gmaps.Entry</code> and <code>gmaps.Review</code> JSON field names are pinned by Axio-Backend's <code>tests/test_native_contract.py</code>. <strong>Add fields only; never rename or remove.</strong></li>
+            <li>The sender forwards only its <code>ENTRY_FIELDS</code> (place id, cid, data id, title, category, address, counts…), so new collector fields are invisible to AxioIntel until both sides add them.</li>
+            <li>Reviews are deduplicated by <code>review_id</code> across inline, RPC and DOM passes before sending.</li>
+            <li>Every run writes a <code>review_collection</code> report per place: reported, collected, complete, stop reason (<code>done / budget / blocked / cap / parse_error / count_unknown / error</code>), stage, pages, blocks, identity rotations, restarts, seconds. It is kept on the VM and is what the gates below are measured from.</li>
+        </ul>
+
+        <h2 id="modes">Lab and send modes</h2>
+        <table>
+            <tr><th>Mode</th><th>What <code>collect.sh</code> does</th><th>Needs</th></tr>
+            <tr><td><strong>lab</strong> (default)</td><td>Collects a places file you give it, keeps every result on the VM, writes one line per place to <code>lab/summary.csv</code>. Asks AxioIntel nothing, sends nothing.</td><td>Nothing from AxioIntel</td></tr>
+            <tr><td><strong>send</strong></td><td>Asks AxioIntel for targets, collects them, pushes each collection.</td><td><code>COLLECTOR_MODE=send</code>, the ingest secret, and the two scripts from Axio-Backend</td></tr>
+        </table>
+
+        <h2 id="gates">Promotion gates: when AxioCRED can become primary</h2>
+        <p>These gates are measured, not judged by eye. All run in lab mode on the same places Apify collects, so the two can be compared place by place.</p>
+        <table>
+            <tr><th>#</th><th>Gate</th><th>Pass when</th></tr>
+            <tr><td>G1</td><td>Proxies in place</td><td>A flat-price ISP/residential pool is on the VM; a deliberately bad proxy line produces one rotation and the run still completes.</td></tr>
+            <tr><td>G2</td><td>Coverage</td><td>Over 7 nightly runs, on 90% or more of places, <code>collected ≥ 98%</code> of the listing's reported count, and within 2% of what Apify returned for the same place.</td></tr>
+            <tr><td>G3</td><td>Honesty</td><td>Every place Apify had more reviews for is reported <code>complete: false</code> by the collector. No false "complete".</td></tr>
+            <tr><td>G4</td><td>Blocking</td><td>Blocked stops on under 5% of place-runs, and no night where every identity was refused.</td></tr>
+            <tr><td>G5</td><td>Time</td><td>A full nightly pass of the watched places finishes inside its window, with the per-place budget under <code>COLLECTOR_TIMEOUT_SECONDS</code>.</td></tr>
+            <tr><td>G6</td><td>Staging</td><td>One send-mode run against staging: collections land under the right profiles, <code>source = native</code>, no false removals, dashboards read them.</td></tr>
+        </table>
+
+        <h2 id="cutover">Cutover, once G1–G6 pass</h2>
+        <ol>
+            <li>Merge Axio-CRED #7 and #8; rebuild the VM image from <code>main</code>.</li>
+            <li>Rotate a fresh <code>native-ingest-secret</code> version; put only that on the VM; set <code>COLLECTOR_MODE=send</code>.</li>
+            <li>Take #136 and #137 out of draft, rebase and re-gate, merge to <code>staging</code>, run the staging checks, then the prod release.</li>
+            <li>Start the nightly cron. For the first two weeks, keep Apify running alongside; compare each native collection with the Apify pull of the same place.</li>
+            <li><strong>Making it primary</strong> (a later Axio-Backend change): route dashboard pulls native-first with Apify as the fallback, and scale Apify's cap down. This needs its own PR and staging run; nothing above does it.</li>
+        </ol>
+        <p><strong>Rollback:</strong> set <code>COLLECTOR_MODE=lab</code> on the VM. AxioIntel keeps Apify and simply stops receiving native pushes; the outage logic already treats a silent collector as absent.</p>
+
+        <h2 id="rules">Rules that do not move</h2>
+        <ul>
+            <li>Nothing here reports, flags, disputes or appeals a review to Google. A human files every submission, and nothing promises reinstatement.</li>
+            <li>The collector never runs in AxioIntel's <code>axiointel</code> Google Cloud project: it has its own provider account, its own IPs, and no link to the project Google is reviewing for Business Profile API access.</li>
+            <li>With proxies configured, no review request leaves the VM without one.</li>
+            <li>Results on the VM hold reviewers' names and words. They are kept 14 days, only until AxioIntel has them.</li>
+            <li>The live Apify path is never changed by collector work until the gates pass (owner's decision, 24 Sep 2026).</li>
+        </ul>
+    </main>
+</body>
+</html>
