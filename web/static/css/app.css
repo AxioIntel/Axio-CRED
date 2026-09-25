@@ -190,3 +190,5 @@ td input.note { min-width: 160px; }
 .metrics .m-stalled .state { color: var(--red); }
 .metrics .m-note { color: var(--amber); }
 .error-text { color: var(--red); }
+.chip-ok { color: var(--green, #22c55e); border-color: rgba(34,197,94,.4); }
+.wa-consent { font-size: 12px; margin-top: 2px; }

@@ -22,6 +22,7 @@ import (
 
 	"github.com/AxioIntel/Axio-CRED/web/leads"
 	"github.com/AxioIntel/Axio-CRED/web/saleshandy"
+	"github.com/AxioIntel/Axio-CRED/web/whatsapp"
 )
 
 //go:embed static
@@ -36,6 +37,7 @@ type Server struct {
 	shConfig   *saleshandy.Config
 	metrics    metricsState
 	geocode    *geocoder
+	whatsapp   *whatsapp.Client
 }
 
 func New(svc *Service, addr string, opts ...Option) (*Server, error) {
@@ -67,6 +69,7 @@ func New(svc *Service, addr string, opts ...Option) (*Server, error) {
 
 	ans.registerLeadRoutes(mux)
 	ans.registerSaleshandyRoutes(mux)
+	ans.registerWhatsAppRoutes(mux)
 	mux.HandleFunc("GET /metrics", ans.metricsPartial)
 	mux.HandleFunc("GET /grid/preview", ans.gridPreview)
 	mux.HandleFunc("POST /rerun", func(w http.ResponseWriter, r *http.Request) {

@@ -62,6 +62,21 @@ type Lead struct {
 	SaleshandyAt time.Time
 	// SaleshandySequence is the sequence it was sent into.
 	SaleshandySequence string
+	// WAOptInAt is when the business agreed to WhatsApp messages, and WAOptInSource how (typed by
+	// the operator: "replied yes to email, 25 Sep"). Zero: never asked, or opted out since.
+	WAOptInAt     time.Time
+	WAOptInSource string
+	// WAOptOutAt is when it asked to stop; nothing is sent after that, whatever else is recorded.
+	WAOptOutAt time.Time
+	// WhatsAppAt is when a template was last sent to it, and WATemplate which one.
+	WhatsAppAt time.Time
+	WATemplate string
+}
+
+// WhatsAppAllowed says whether a WhatsApp template may be sent to the lead: it opted in, has not
+// opted out since, and is not do_not_contact.
+func (l *Lead) WhatsAppAllowed() bool {
+	return !l.WAOptInAt.IsZero() && l.WAOptOutAt.IsZero() && l.Status != "do_not_contact"
 }
 
 // FirstEmail is the address outreach should use.
@@ -99,10 +114,18 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("lead schema: %w", err)
 	}
 
-	if err := addColumn(db, "leads", "saleshandy_sequence", "TEXT NOT NULL DEFAULT ''"); err != nil {
-		_ = db.Close()
+	for _, c := range []struct{ name, decl string }{
+		{"saleshandy_sequence", "TEXT NOT NULL DEFAULT ''"},
+		{"wa_opt_in_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"wa_opt_in_source", "TEXT NOT NULL DEFAULT ''"},
+		{"wa_opt_out_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"wa_template", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if err := addColumn(db, "leads", c.name, c.decl); err != nil {
+			_ = db.Close()
 
-		return nil, err
+			return nil, err
+		}
 	}
 
 	return &Store{db: db}, nil
@@ -183,6 +206,17 @@ CREATE TABLE IF NOT EXISTS saleshandy_pushes (
 	prospects INTEGER NOT NULL,
 	at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS whatsapp_sends (
+	id INTEGER PRIMARY KEY,
+	lead_id INTEGER NOT NULL REFERENCES leads (id) ON DELETE CASCADE,
+	phone TEXT NOT NULL,
+	template TEXT NOT NULL,
+	language TEXT NOT NULL,
+	message_id TEXT NOT NULL DEFAULT '',
+	error TEXT NOT NULL DEFAULT '',
+	at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS whatsapp_sends_lead ON whatsapp_sends (lead_id);
 CREATE TABLE IF NOT EXISTS ingested_jobs (
 	job_id TEXT PRIMARY KEY,
 	rows INTEGER NOT NULL,
@@ -238,6 +272,7 @@ type Filter struct {
 	JobID      string
 	IDs        []int64 // only these leads
 	Saleshandy string  // "sent", "not_sent", or "" for either
+	WhatsApp   string  // "opted_in" (may be messaged), "sent", or "" for either
 	HasEmail   bool
 	HasPhone   bool
 	HasWebsite bool
@@ -296,6 +331,13 @@ func (f *Filter) where() (clause string, args []any) {
 		conds = append(conds, "saleshandy_at = 0")
 	}
 
+	switch f.WhatsApp {
+	case "opted_in":
+		conds = append(conds, "wa_opt_in_at > 0 AND wa_opt_out_at = 0 AND status <> 'do_not_contact'")
+	case "sent":
+		conds = append(conds, "whatsapp_at > 0")
+	}
+
 	if f.HasEmail {
 		conds = append(conds, "emails <> ''")
 	}
@@ -340,21 +382,25 @@ func (f *Filter) orderBy() string {
 
 const leadColumns = `id, source, source_id, name, category, phone, emails, website, address, city, state,
 	country, rating, reviews, link, query, status, note, status_at, first_seen, last_seen,
-	saleshandy_at, saleshandy_sequence, (SELECT count(*) FROM lead_jobs WHERE lead_id = leads.id)`
+	saleshandy_at, saleshandy_sequence, wa_opt_in_at, wa_opt_in_source, wa_opt_out_at, whatsapp_at,
+	wa_template, (SELECT count(*) FROM lead_jobs WHERE lead_id = leads.id)`
 
 func scanLead(sc interface{ Scan(...any) error }) (Lead, error) {
 	var (
 		l                                           Lead
 		statusAt, firstSeen, lastSeen, saleshandyAt int64
+		optIn, optOut, whatsappAt                   int64
 	)
 
 	err := sc.Scan(&l.ID, &l.Source, &l.SourceID, &l.Name, &l.Category, &l.Phone, &l.Emails,
 		&l.Website, &l.Address, &l.City, &l.State, &l.Country, &l.Rating, &l.Reviews, &l.Link,
 		&l.Query, &l.Status, &l.Note, &statusAt, &firstSeen, &lastSeen, &saleshandyAt,
-		&l.SaleshandySequence, &l.Jobs)
+		&l.SaleshandySequence, &optIn, &l.WAOptInSource, &optOut, &whatsappAt, &l.WATemplate, &l.Jobs)
 	if err != nil {
 		return l, err
 	}
+
+	l.WAOptInAt, l.WAOptOutAt, l.WhatsAppAt = unixOrZero(optIn), unixOrZero(optOut), unixOrZero(whatsappAt)
 
 	if saleshandyAt > 0 {
 		l.SaleshandyAt = time.Unix(saleshandyAt, 0).UTC()
@@ -528,6 +574,74 @@ func (s *Store) MarkSaleshandy(ctx context.Context, ids []int64, requestID, sequ
 	for _, id := range ids {
 		_, err = tx.ExecContext(ctx, "UPDATE leads SET saleshandy_at = ?, saleshandy_sequence = ? WHERE id = ?", now, sequence, id)
 		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func unixOrZero(sec int64) time.Time {
+	if sec <= 0 {
+		return time.Time{}
+	}
+
+	return time.Unix(sec, 0).UTC()
+}
+
+// ErrOptInSource is an opt-in recorded without saying how the business agreed.
+var ErrOptInSource = errors.New("say how the business agreed to WhatsApp messages (at least 5 characters)")
+
+// SetWhatsAppOptIn records that a lead agreed to WhatsApp messages, and how. It clears an
+// earlier opt-out: the business has asked again.
+func (s *Store) SetWhatsAppOptIn(ctx context.Context, id int64, source string) error {
+	source = strings.TrimSpace(source)
+	if len([]rune(source)) < 5 {
+		return ErrOptInSource
+	}
+
+	_, err := s.db.ExecContext(ctx, "UPDATE leads SET wa_opt_in_at = ?, wa_opt_in_source = ?, wa_opt_out_at = 0 WHERE id = ?",
+		time.Now().UTC().Unix(), source, id)
+
+	return err
+}
+
+// SetWhatsAppOptOut records that a lead asked for no more WhatsApp messages.
+func (s *Store) SetWhatsAppOptOut(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE leads SET wa_opt_out_at = ?, wa_opt_in_at = 0 WHERE id = ?", time.Now().UTC().Unix(), id)
+
+	return err
+}
+
+// WhatsAppSend is one template sent (or refused by Meta) to one lead.
+type WhatsAppSend struct {
+	LeadID    int64
+	Phone     string
+	Template  string
+	Language  string
+	MessageID string
+	Error     string
+}
+
+// RecordWhatsApp logs a send; a successful one also marks the lead as messaged.
+func (s *Store) RecordWhatsApp(ctx context.Context, w *WhatsAppSend) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = tx.Rollback() }()
+
+	now := time.Now().UTC().Unix()
+
+	_, err = tx.ExecContext(ctx, `INSERT INTO whatsapp_sends (lead_id, phone, template, language, message_id, error, at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`, w.LeadID, w.Phone, w.Template, w.Language, w.MessageID, w.Error, now)
+	if err != nil {
+		return err
+	}
+
+	if w.Error == "" {
+		if _, err = tx.ExecContext(ctx, "UPDATE leads SET whatsapp_at = ?, wa_template = ? WHERE id = ?", now, w.Template, w.LeadID); err != nil {
 			return err
 		}
 	}

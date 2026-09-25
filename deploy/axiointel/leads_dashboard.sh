@@ -17,6 +17,10 @@
 #   AXIO_CRED_DIR    the repository checkout; default /opt/axio-cred
 #   LEADS_ENV_FILE   secrets for the dashboard; default /etc/axiointel/leads.env (root:docker, 640)
 #                    SALESHANDY_API_KEY=...   turns on "Send to Saleshandy"
+#                    WHATSAPP_TOKEN=...                 with the two ids below, turns on WhatsApp
+#                    WHATSAPP_PHONE_NUMBER_ID=...       template sending (Meta WhatsApp Cloud API):
+#                    WHATSAPP_BUSINESS_ACCOUNT_ID=...   a system user's token, the sending number's id
+#                                                       and the WABA id. Opted-in leads only.
 #   LEADS_CONCURRENCY listings worked on at once; default 3
 #   LEADS_PROXIES    proxies for Google; default /etc/axiointel/proxies.txt (root:docker, 640), one
 #                    http://user:pass@host:port per line. When present, every job's Google traffic

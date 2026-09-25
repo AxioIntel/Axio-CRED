@@ -94,6 +94,11 @@
                             <option value="not_sent">Not sent yet</option>
                             <option value="sent">Already sent</option>
                         </select>
+                        <select name="whatsapp" style="width:auto">
+                            <option value="">WhatsApp: any</option>
+                            <option value="opted_in" {{if eq .Filter.WhatsApp "opted_in"}}selected{{end}}>Opted in</option>
+                            <option value="sent" {{if eq .Filter.WhatsApp "sent"}}selected{{end}}>Messaged</option>
+                        </select>
                         <select name="source" style="width:auto">
                             <option value="">All sources</option>
                             <option value="google_maps">Google Maps</option>
@@ -129,6 +134,19 @@
                 <button class="btn btn-sm btn-primary" type="button" onclick="sendSaleshandy('filtered')">Send all matching filters</button>
             </div>
             <div id="sh-result" class="sh-result-wrap"></div>
+
+            <div class="toolbar sh-bar wa-bar">
+                <strong>WhatsApp</strong>
+                <select id="wa-template" style="width:auto;max-width:320px" hx-get="/whatsapp/templates" hx-trigger="load" hx-swap="innerHTML" onchange="waVars()">
+                    <option value="">Loading templates…</option>
+                </select>
+                <span id="wa-vars"></span>
+                <span class="faint" title="Enforced on the server">Opted-in leads only · never do_not_contact · once a day at most</span>
+                <div class="spacer"></div>
+                <button class="btn btn-sm" type="button" onclick="sendWhatsApp('ticked')">Send ticked</button>
+                <button class="btn btn-sm btn-primary" type="button" onclick="sendWhatsApp('filtered')">Send to opted-in matching filters</button>
+            </div>
+            <div id="wa-result" class="sh-result-wrap"></div>
 
             <div id="leads-table" hx-get="/leads/table" hx-include="#lead-filters" hx-trigger="load">
                 <div class="empty">Loading…</div>
@@ -175,6 +193,45 @@
         }
         document.getElementById('sh-result').innerHTML = '<div class="sh-result">Sending…</div>';
         htmx.ajax('POST', '/leads/saleshandy', { values: values, target: '#sh-result', swap: 'innerHTML' });
+    }
+    document.body.addEventListener('htmx:responseError', function (e) {
+        if (/\/leads\/wa-opt/.test(e.detail.pathInfo.requestPath)) { alert(e.detail.xhr.responseText); }
+    });
+    var waFieldNames = { name: 'Business name', city: 'City', category: 'Category', rating: 'Rating', reviews: 'Review count' };
+    function waVars() {
+        var sel = document.getElementById('wa-template');
+        var opt = sel.options[sel.selectedIndex];
+        var n = opt ? parseInt(opt.getAttribute('data-params') || '0', 10) : 0;
+        var defaults = ['name', 'city', 'category', 'rating', 'reviews'];
+        var html = '';
+        for (var i = 0; i < n; i++) {
+            html += '<label class="faint"> {{"{{"}}' + (i + 1) + '{{"}}"}} <select class="wa-var" style="width:auto">';
+            Object.keys(waFieldNames).forEach(function (k) {
+                html += '<option value="' + k + '"' + (k === defaults[i] ? ' selected' : '') + '>' + waFieldNames[k] + '</option>';
+            });
+            html += '</select></label>';
+        }
+        document.getElementById('wa-vars').innerHTML = html;
+    }
+    function sendWhatsApp(scope) {
+        var sel = document.getElementById('wa-template');
+        if (!sel.value) { alert('Choose an approved template first.'); return; }
+        var values = { template: sel.value, scope: scope,
+            'var': Array.prototype.map.call(document.querySelectorAll('select.wa-var'), function (s) { return s.value; }) };
+        var what = sel.options[sel.selectedIndex].text;
+        if (scope === 'ticked') {
+            var ids = Array.prototype.map.call(document.querySelectorAll('input.pick:checked'), function (c) { return c.value; });
+            if (ids.length === 0) { alert('Tick at least one lead first.'); return; }
+            values.id = ids;
+            if (!confirm('Send the WhatsApp template ' + what + ' to the ticked leads that opted in (' + ids.length + ' ticked)?')) { return; }
+        } else {
+            new FormData(document.getElementById('lead-filters')).forEach(function (v, k) { values[k] = v; });
+            if (!confirm('Send the WhatsApp template ' + what + ' to every OPTED-IN lead matching the filters (at most 100)?
+
+Leads without a recorded opt-in, opted out, do_not_contact, or messaged in the last 24 hours are skipped.')) { return; }
+        }
+        document.getElementById('wa-result').innerHTML = '<div class="sh-result">Sending…</div>';
+        htmx.ajax('POST', '/leads/whatsapp', { values: values, target: '#wa-result', swap: 'innerHTML' });
     }
     function toggleAll(box) {
         document.querySelectorAll('input.pick').forEach(function (c) { c.checked = box.checked; });

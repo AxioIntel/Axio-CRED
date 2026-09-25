@@ -24,6 +24,7 @@ import (
 	"github.com/AxioIntel/Axio-CRED/web/leads"
 	"github.com/AxioIntel/Axio-CRED/web/saleshandy"
 	"github.com/AxioIntel/Axio-CRED/web/sqlite"
+	"github.com/AxioIntel/Axio-CRED/web/whatsapp"
 	"github.com/gosom/scrapemate"
 	"github.com/gosom/scrapemate/adapters/writers/csvwriter"
 	"github.com/gosom/scrapemate/scrapemateapp"
@@ -102,7 +103,8 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 	}
 
 	srv, err := web.New(svc, cfg.Addr, web.WithLeads(leadStore),
-		web.WithSaleshandy(saleshandy.New(os.Getenv("SALESHANDY_API_KEY")), shConfig))
+		web.WithSaleshandy(saleshandy.New(os.Getenv("SALESHANDY_API_KEY")), shConfig),
+		web.WithWhatsApp(whatsapp.New(os.Getenv("WHATSAPP_TOKEN"), os.Getenv("WHATSAPP_PHONE_NUMBER_ID"), os.Getenv("WHATSAPP_BUSINESS_ACCOUNT_ID"))))
 	if err != nil {
 		return nil, err
 	}
