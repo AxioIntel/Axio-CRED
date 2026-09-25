@@ -1,31 +1,48 @@
 #!/usr/bin/env bash
-# Nightly backup of the lead list to Google Drive.
+# Nightly backup of the lead list to Google Cloud Storage (or Google Drive).
 #
 # The lead list (leads.db) is the one thing on the collector's machine that cannot be scraped
 # again: which leads were sent to Saleshandy and where, and the operator's statuses and notes --
 # above all "do_not_contact". This takes a consistent copy while the dashboard keeps running,
-# checks it, compresses it, and uploads it (with saleshandy.json) to Google Drive through rclone.
-# The last LEADS_BACKUP_KEEP_DAYS days are kept in Drive, the last 7 on the machine.
+# checks it, compresses it, and uploads it (with saleshandy.json) through rclone. The last 7 days
+# are also kept on the machine.
 #
 # Usage: backup_leads.sh            run one backup now
 #        backup_leads.sh install    install and start the nightly systemd timer (03:30 UTC)
 #        backup_leads.sh status     the timer and the last run's log
 #
-# Setup, once, by the owner (the Google sign-in is theirs; see deploy/axiointel/README.md):
-#   sudo rclone config --config /etc/axiointel/rclone.conf   -> a "drive" remote named gdrive,
-#   scope "drive.file" (rclone sees only the files it creates, nothing else in the Drive).
+# Google Cloud Storage (the default): a bucket in the lead lab's own GCP project -- never the
+# axiointel project -- and a service account key at /etc/axiointel/gcs-backup.json (root, 600)
+# whose account may only create and read objects in that bucket, so a stolen key cannot delete a
+# backup. The bucket's lifecycle rule deletes backups after 30 days; this script deletes nothing
+# there. Name the bucket in /etc/axiointel/backup.env:  LEADS_BACKUP_BUCKET=<bucket>
 #
-# Configuration (environment):
+# Google Drive instead: sudo rclone config --config /etc/axiointel/rclone.conf (a "drive" remote
+# named gdrive, scope drive.file) and LEADS_BACKUP_REMOTE=gdrive:AxioCRED-backups; there, backups
+# older than LEADS_BACKUP_KEEP_DAYS (default 30) are deleted by this script.
+#
+# Configuration (environment, or /etc/axiointel/backup.env):
 #   LEADS_DATA_DIR          default /var/lib/axio-leads
-#   RCLONE_CONFIG_FILE      default /etc/axiointel/rclone.conf (root, 600)
-#   LEADS_BACKUP_REMOTE     default gdrive:AxioCRED-backups
-#   LEADS_BACKUP_KEEP_DAYS  default 30
+#   LEADS_BACKUP_BUCKET     the Cloud Storage bucket
+#   GCS_KEY_FILE            default /etc/axiointel/gcs-backup.json
+#   LEADS_BACKUP_REMOTE     an rclone remote instead of the bucket, e.g. gdrive:AxioCRED-backups
+#   RCLONE_CONFIG_FILE      default /etc/axiointel/rclone.conf (root, 600), for such a remote
+#   LEADS_BACKUP_KEEP_DAYS  default 30 (remotes other than the bucket)
 #   LEADS_BACKUP_LOCAL      default /var/backups/axio-leads
 set -euo pipefail
 
+if [ -r /etc/axiointel/backup.env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . /etc/axiointel/backup.env
+  set +a
+fi
+
 DATA="${LEADS_DATA_DIR:-/var/lib/axio-leads}"
 CONF="${RCLONE_CONFIG_FILE:-/etc/axiointel/rclone.conf}"
-REMOTE="${LEADS_BACKUP_REMOTE:-gdrive:AxioCRED-backups}"
+KEY="${GCS_KEY_FILE:-/etc/axiointel/gcs-backup.json}"
+BUCKET="${LEADS_BACKUP_BUCKET:-}"
+REMOTE="${LEADS_BACKUP_REMOTE:-}"
 KEEP_DAYS="${LEADS_BACKUP_KEEP_DAYS:-30}"
 LOCAL="${LEADS_BACKUP_LOCAL:-/var/backups/axio-leads}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -68,8 +85,24 @@ case "${1:-run}" in
   *) echo "usage: $0 [run|install|status]" >&2; exit 1 ;;
 esac
 
-[ "$(id -u)" -eq 0 ] || { echo "run as root (the lead list and the rclone config are root's)" >&2; exit 1; }
-[ -r "$CONF" ] || { echo "no rclone config at $CONF; run: rclone config --config $CONF" >&2; exit 1; }
+[ "$(id -u)" -eq 0 ] || { echo "run as root (the lead list and the keys are root's)" >&2; exit 1; }
+
+# Where the backup goes: the bucket (an rclone connection string, no config file needed) or a
+# configured remote.
+if [ -n "$REMOTE" ]; then
+  [ -r "$CONF" ] || { echo "no rclone config at $CONF; run: rclone config --config $CONF" >&2; exit 1; }
+  RCLONE=(rclone --config "$CONF")
+  DEST="$REMOTE"
+  PRUNE=1
+elif [ -n "$BUCKET" ]; then
+  [ -r "$KEY" ] || { echo "no service account key at $KEY" >&2; exit 1; }
+  RCLONE=(rclone --config /dev/null)
+  DEST=":gcs,service_account_file=$KEY,bucket_policy_only=true,no_check_bucket=true:$BUCKET/leads"
+  PRUNE=0 # the bucket's lifecycle rule deletes old backups; the key cannot
+else
+  echo "set LEADS_BACKUP_BUCKET (or LEADS_BACKUP_REMOTE) in /etc/axiointel/backup.env" >&2
+  exit 1
+fi
 [ -f "$DATA/leads.db" ] || { echo "no lead list at $DATA/leads.db" >&2; exit 1; }
 
 stamp=$(date -u +%Y-%m-%d)
@@ -95,9 +128,11 @@ PY
 gzip -f "$copy"
 [ -f "$DATA/saleshandy.json" ] && cp "$DATA/saleshandy.json" "$LOCAL/saleshandy-$stamp.json"
 
-rclone --config "$CONF" copy "$LOCAL" "$REMOTE" \
+"${RCLONE[@]}" copy "$LOCAL" "$DEST" \
   --include "leads-$stamp.db.gz" --include "saleshandy-$stamp.json"
-rclone --config "$CONF" delete "$REMOTE" --min-age "${KEEP_DAYS}d"
+if [ "$PRUNE" = 1 ]; then
+  "${RCLONE[@]}" delete "$DEST" --min-age "${KEEP_DAYS}d"
+fi
 find "$LOCAL" -type f -mtime +7 -delete
 
-echo "$(date -u +%FT%TZ) backed up leads-$stamp.db.gz ($(du -h "$copy.gz" | cut -f1)) to $REMOTE"
+echo "$(date -u +%FT%TZ) backed up leads-$stamp.db.gz ($(du -h "$copy.gz" | cut -f1)) to ${REMOTE:-gs://$BUCKET/leads}"
