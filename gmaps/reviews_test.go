@@ -63,10 +63,10 @@ func Test_extractPlaceID(t *testing.T) {
 }
 
 func TestReviewPageBudgetBeyondThousand(t *testing.T) {
-	assert.GreaterOrEqual(t, reviewPageBudget(1162)*20, 1162)
-	assert.Greater(t, reviewPageBudget(1162), 50)
-	assert.Equal(t, 250, reviewPageBudget(1000000))
-	assert.Greater(t, reviewPageBudget(0), 0)
+	assert.GreaterOrEqual(t, reviewPageBudget(1162, defaultReviewCap)*20, 1162)
+	assert.Greater(t, reviewPageBudget(1162, defaultReviewCap), 50)
+	assert.Equal(t, defaultReviewCap/20, reviewPageBudget(1000000, defaultReviewCap))
+	assert.Greater(t, reviewPageBudget(0, defaultReviewCap), 0)
 }
 
 func TestDOMConversionPreservesReviewIdentity(t *testing.T) {

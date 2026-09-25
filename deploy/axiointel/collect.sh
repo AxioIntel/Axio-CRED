@@ -10,10 +10,19 @@
 # programs are AxioIntel's, fetched from Axio-Backend's scripts/ so they cannot drift from the
 # endpoints they talk to. Nothing here reports, flags or appeals anything.
 #
-# Usage: collect.sh [places-file]        (default: ask AxioIntel)
+# Two modes, and lab is the default, so nothing reaches AxioIntel unless the machine is told to:
+#   lab    (default) collect the places file given, keep every result on this machine, and add one
+#          line per place to <work>/lab/summary.csv. AxioIntel is neither asked nor sent anything,
+#          and no secret is needed. This is how the collector proves itself before AxioIntel
+#          depends on it (owner's decision, 24 Sep 2026).
+#   send   the full loop described above: ask AxioIntel what to collect, send each collection back.
+#
+# Usage: collect.sh [places-file]        (lab: required, or COLLECTOR_PLACES_FILE;
+#                                          send: default is to ask AxioIntel)
 #
 # Configuration, from /etc/axiointel/collector.env (root-owned, mode 600) or the environment:
-#   AXIOINTEL_NATIVE_INGEST_SECRET   the shared secret; required
+#   COLLECTOR_MODE                   lab (default) or send
+#   AXIOINTEL_NATIVE_INGEST_SECRET   the shared secret; required in send mode only
 #   AXIOINTEL_BASE_URL               which deployment to ask and send to; default
 #                                    https://axiointel.com/api -- point it at staging for a first run
 #   AXIOINTEL_TARGETS_URL            overrides only where the list comes from
@@ -21,7 +30,10 @@
 #   COLLECTOR_PLACES_FILE            collect this list instead of asking AxioIntel
 #   COLLECTOR_IMAGE                  docker image built from this repository; default axio-cred-collector
 #   COLLECTOR_PROXIES_FILE           optional; one proxy URL per line, passed as -proxies-file
-#   COLLECTOR_TIMEOUT_SECONDS        per place; default 1200, Axio-CRED's own full-review budget
+#   COLLECTOR_TIMEOUT_SECONDS        per place; default 1200, Axio-CRED's own full-review budget.
+#                                    The collector's own review clock (-review-budget) is set four
+#                                    minutes under it, so a slow place is written out partial rather
+#                                    than killed and lost. Raise this for listings over ~5,000 reviews.
 #   COLLECTOR_WORK_DIR               default /var/lib/axiointel-collector
 #   COLLECTOR_KEEP_DAYS              local results kept this long; default 14
 #
@@ -37,8 +49,14 @@ if [ -f "$ENV_FILE" ]; then
   . "$ENV_FILE"
   set +a
 fi
-: "${AXIOINTEL_NATIVE_INGEST_SECRET:?set AXIOINTEL_NATIVE_INGEST_SECRET in $ENV_FILE}"
-export AXIOINTEL_NATIVE_INGEST_SECRET
+MODE="${COLLECTOR_MODE:-lab}"
+case "$MODE" in
+  lab) ;;
+  send)
+    : "${AXIOINTEL_NATIVE_INGEST_SECRET:?set AXIOINTEL_NATIVE_INGEST_SECRET in $ENV_FILE}"
+    export AXIOINTEL_NATIVE_INGEST_SECRET ;;
+  *) echo "COLLECTOR_MODE must be lab or send, not $MODE" >&2; exit 1 ;;
+esac
 
 IMAGE="${COLLECTOR_IMAGE:-axio-cred-collector}"
 TIMEOUT="${COLLECTOR_TIMEOUT_SECONDS:-1200}"
@@ -55,13 +73,33 @@ INGEST_URL="${AXIOINTEL_INGEST_URL:-$BASE_URL/ingest/native}"
 # holds the lock. An answered list belongs to the run that asked for it, not to this folder.
 PLACES="${1:-${COLLECTOR_PLACES_FILE:-}}"
 
-[ -f "$PUSHER" ] || { echo "no sender at $PUSHER; copy scripts/push_native.py from Axio-Backend" >&2; exit 1; }
+if [ "$MODE" = lab ]; then
+  [ -n "$PLACES" ] || { echo "lab mode collects a list of its own: pass a places file or set COLLECTOR_PLACES_FILE" >&2; exit 1; }
+else
+  [ -f "$PUSHER" ] || { echo "no sender at $PUSHER; copy scripts/push_native.py from Axio-Backend" >&2; exit 1; }
+fi
 mkdir -p "$WORK"
+echo "$(date -u +%FT%TZ) mode: $MODE"
 
 # One collection at a time: a second cron firing while a long one runs would share a browser
 # budget and an IP address with it.
 exec 9>"$WORK/.lock"
 flock -n 9 || { echo "a collection is already running; skipping this one"; exit 0; }
+
+# The collector's review clock sits under this script's kill, so a slow place ends as a partial
+# collection that is still written out, rather than a killed container that wrote nothing. Only an
+# image built with the review collector knows the flag; an older one is run as before.
+REVIEW_FLAGS=()
+# Read the whole help first: under pipefail, `docker run | grep -q` fails whenever grep's early
+# exit cuts docker off mid-write, and the flag would silently never be passed.
+image_help=$(docker run --rm "$IMAGE" -h 2>&1 || true)
+if grep -q -- -review-budget <<<"$image_help"; then
+  if [ "$TIMEOUT" -gt 300 ]; then
+    REVIEW_FLAGS=(-review-budget "$((TIMEOUT - 240))s")
+  else
+    REVIEW_FLAGS=(-review-budget "$((TIMEOUT * 4 / 5))s")
+  fi
+fi
 
 # Results hold reviewers' names and words. They are needed only until AxioIntel has them.
 find "$WORK" -mindepth 2 -maxdepth 2 -type d -mtime "+$KEEP_DAYS" -exec rm -rf {} + 2>/dev/null
@@ -83,7 +121,7 @@ fi
 failures=0
 while read -r place purpose _; do
   case "$place" in ''|\#*) continue ;; esac
-  if ! [[ "$place" =~ ^[A-Za-z0-9_-]{10,300}$ ]]; then
+  if ! [[ "$place" =~ ^[A-Za-z0-9_-]{10,255}$ ]]; then
     echo "skipping a line that is not a place ID: $place" >&2
     failures=$((failures + 1))
     continue
@@ -114,7 +152,7 @@ while read -r place purpose _; do
       ${proxy[@]+"${proxy[@]}"} "$IMAGE" \
       -input /work/query.txt -results /work/results.jsonl -json -lang en -depth 1 -zoom 15 \
       -c 1 -browser-pool-size 1 -pages-per-browser 1 -extra-reviews \
-      ${proxy_flag[@]+"${proxy_flag[@]}"} \
+      ${REVIEW_FLAGS[@]+"${REVIEW_FLAGS[@]}"} ${proxy_flag[@]+"${proxy_flag[@]}"} \
     > "$run/collector.log" 2>&1
   code=$?
   elapsed=$(( $(date +%s) - started ))
@@ -138,6 +176,54 @@ while read -r place purpose _; do
     stopped=(--incomplete)
     echo "$(date -u +%FT%TZ) collector exit $code for $place; sending what it collected as incomplete" >&2
   fi
+
+  # What the collector says about its own coverage (`review_collection` in the results). A
+  # collection it does not call complete -- blocked, out of budget, a listing that ran short, a
+  # count it could not read -- is sent as incomplete even when the container exited cleanly: the
+  # sender's own check compares against the listing's count, and cannot see an unread one.
+  coverage=$(python3 - "$run/results.jsonl" <<'PY'
+import json, sys
+found = None
+with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
+    for line in fh:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        report = entry.get("review_collection") if isinstance(entry, dict) else None
+        if isinstance(report, dict):
+            found = report
+if found is None:
+    print("missing")
+else:
+    print(" ".join(str(v) for v in (
+        "complete" if found.get("complete") else "partial",
+        found.get("collected", 0), found.get("reported", 0),
+        found.get("stop_reason") or "-", found.get("stop_stage") or "-",
+        found.get("identity_rotations", 0), found.get("blocks", 0))))
+PY
+)
+  read -r cov_state cov_collected cov_reported cov_reason cov_stage cov_rotations cov_blocks \
+    <<<"$coverage"
+  if [ "$cov_state" = "missing" ] || [ -z "$cov_state" ]; then
+    echo "$(date -u +%FT%TZ) $place: no coverage report (an image built before the review collector)"
+  else
+    echo "$(date -u +%FT%TZ) $place: $cov_collected/$cov_reported reviews, $cov_state" \
+      "($cov_reason, stage $cov_stage, $cov_rotations rotation(s), $cov_blocks block(s))"
+    if [ "$cov_state" = "partial" ] && [ ${#stopped[@]} -eq 0 ]; then
+      stopped=(--incomplete)
+    fi
+  fi
+  if [ "$MODE" = lab ]; then
+    # Kept here, never sent: one line per place, to judge the collector by before AxioIntel
+    # relies on it. The full collection stays in $run/results.jsonl.
+    summary="$WORK/lab/summary.csv"
+    mkdir -p "$WORK/lab"
+    [ -s "$summary" ] || echo "finished_at,place_id,purpose,exit,elapsed_s,state,collected,reported,stop_reason,stop_stage,rotations,blocks,results" > "$summary"
+    echo "$(date -u +%FT%TZ),$place,${purpose:-owned},$code,$elapsed,${cov_state:-missing},${cov_collected:-},${cov_reported:-},${cov_reason:-},${cov_stage:-},${cov_rotations:-},${cov_blocks:-},$run/results.jsonl" >> "$summary"
+    continue
+  fi
+
   # AxioIntel compares the collector with pulls made from the dashboard on speed. Older copies
   # of the sender do not know the flag, so it is passed only to one that does.
   timing=()
