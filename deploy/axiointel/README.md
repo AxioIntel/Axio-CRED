@@ -10,13 +10,20 @@ Axio-CRED's app uses for an exact Place ID, including `-extra-reviews`. It hands
 Asking is a read. AxioIntel never runs, schedules or calls this collector: it answers with a
 list, and this machine decides on its own clock what to do with it.
 
+**Since 26 Sep 2026 this collector is AxioIntel's first source of reviews and Apify its backup**
+(owner's decision). A person's "Pull now", a profile that is due, and a paid audit each mark the
+place *requested*; `collect.sh daemon` polls every two minutes, collects requested places first,
+up to three at once, and sends each one as soon as it is done. AxioIntel waits up to 15 minutes
+for it, then pulls through Apify instead; it also goes straight to Apify while this collector's
+recent speed is under half its usual speed, or while it has sent nothing for 36 hours.
+
 Nothing here reports, flags or appeals a review. The collector reads public pages. AxioIntel
 stores what arrives and never treats it as proof that anyone owns a place.
 
-## Lab mode first (the default)
+## Lab mode (the default when nothing is set)
 
-Until the collector has proved itself, it runs apart from AxioIntel (owner's decision,
-24 Sep 2026). `COLLECTOR_MODE` is `lab` unless set otherwise. In lab mode `collect.sh`:
+`COLLECTOR_MODE` is `lab` unless set otherwise; production runs `send` (below). Lab mode is for
+trying a change on a list of places without AxioIntel seeing any of it. In lab mode `collect.sh`:
 
 - collects only the places file you give it (`collect.sh places.txt`, or `COLLECTOR_PLACES_FILE`);
 - never asks AxioIntel for targets and never sends it anything, so it needs no secret, and
@@ -25,9 +32,9 @@ Until the collector has proved itself, it runs apart from AxioIntel (owner's dec
   `<work>/lab/summary.csv` (collected, reported, complete or partial, why it stopped, rotations,
   blocks, seconds).
 
-That summary, compared with Apify's pulls of the same places, is what decides whether AxioIntel
-starts relying on the collector. Only then is `COLLECTOR_MODE=send` set, the secret written, and
-the rest of this page's sending setup applied. `find_emails.sh` never sends anything, in either mode.
+The same summary line is written in send mode too (with a `sent` column): it is this machine's
+own record of the collector's speed and coverage, beside the speed AxioIntel measures from what
+arrives. `find_emails.sh` never sends anything, in either mode.
 
 ## Where it runs
 
@@ -100,10 +107,18 @@ A small Linux VM is enough, collecting one place at a time: Ubuntu 24.04, 2 vCPU
    sudo deploy/axiointel/collect.sh
    ```
 
-7. **Schedule it.** Once a day is plenty for most places.
+7. **Run it as a service.** The daemon polls AxioIntel every `COLLECTOR_POLL_SECONDS` (120),
+   collects requested places first, then places that are due, up to `COLLECTOR_PARALLEL` (3) at
+   once, and never the same place twice at once. A due place that is not requested is collected
+   at most every `COLLECTOR_MIN_INTERVAL_HOURS` (6); a place whose last try failed waits
+   `COLLECTOR_RETRY_MINUTES` (10).
    ```bash
-   echo '30 2 * * * root /path/to/Axio-CRED/deploy/axiointel/collect.sh >> /var/log/axiointel-collect.log 2>&1' | sudo tee /etc/cron.d/axiointel-collect
+   sudo deploy/axiointel/collect.sh install-daemon   # systemd unit axio-collector, restarts on failure
+   deploy/axiointel/collect.sh status                # the service and the last 20 summary lines
+   journalctl -u axio-collector -f                   # what it is doing now
    ```
+   Stopping the service (`sudo systemctl stop axio-collector`) stops its containers too. Rolling
+   back is AxioIntel's `COLLECTION_PRIMARY=apify`; the service may keep sending meanwhile.
 
 ## Proxies
 
@@ -171,12 +186,13 @@ Anything it does not call complete is sent as incomplete, even when the containe
 
 ## Sizing the time budgets
 
-Two clocks apply. `COLLECTOR_TIMEOUT_SECONDS` (default 1200) is when `collect.sh` kills the
-container. The collector's own review clock, `-review-budget`, is set four minutes under it, so
+Two clocks apply. `COLLECTOR_TIMEOUT_SECONDS` (default 900, inside AxioIntel's 15-minute wait)
+is when `collect.sh` kills the container. The collector's own review clock, `-review-budget`, is set four minutes under it, so
 that a slow place is still written out as a partial collection rather than killed and lost. At
 the default pace a place takes roughly a second per 20 reviews: about 3 minutes for 1,169 reviews
-and 11 minutes for 5,000. For a listing over about 5,000 reviews, raise `COLLECTOR_TIMEOUT_SECONDS`;
-the review clock follows. Pass `-review-max` to the image as well to keep more than 5,000 per place.
+and 11 minutes for 5,000. A larger listing arrives partial, which AxioIntel never reads as
+removals, and the next pass finishes it; raising `COLLECTOR_TIMEOUT_SECONDS` past 900 means a
+person pulling such a place is served by Apify first. The review clock follows. Pass `-review-max` to the image as well to keep more than 5,000 per place.
 
 ## Exit status
 
