@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Research · AxioCRED</title>
+    <link rel="stylesheet" href="/static/css/app.css">
+    <script src="/static/js/research.js" defer></script>
+</head>
+<body class="workspace">
+    {{template "sidebar" "research"}}
+    <main class="page research-page" id="main-content">
+        <div class="page-heading"><div><p class="eyebrow">Research workspace</p><h1>Start with a question.</h1><p>Prepare a brief for the sources and evidence you need.</p></div><span class="chip">Planning available</span></div>
+        <div class="research-layout">
+            <section class="card brief-panel" aria-labelledby="brief-title">
+                <div class="card-head"><h2 id="brief-title">Your research brief</h2><span class="chip">No AI tokens used</span></div>
+                <form class="card-body" id="research-form">
+                    <div class="field"><label for="research-source">Source</label><select id="research-source" name="source"><option value="websites">Business websites</option><option value="reddit">Reddit discussions</option><option value="practo">Practo profiles</option></select></div>
+                    <div class="field"><label for="research-goal">What do you want to learn?</label><textarea id="research-goal" name="goal" maxlength="4000" rows="5" required placeholder="Find dermatology clinics in Bengaluru. Identify their services, locations and published business contacts."></textarea></div>
+                    <div class="field"><label for="research-links">Source links <span class="opt">(optional)</span></label><textarea id="research-links" name="links" maxlength="10000" rows="3" placeholder="One website or discussion URL per line"></textarea><p class="hint">These are saved as references. Saving a brief does not visit the links.</p></div>
+                    <div class="field"><label for="research-fields">Information to collect</label><input id="research-fields" name="fields" type="text" maxlength="1000" value="Name, location, services, business contact, source evidence"></div>
+                    <div class="brief-actions"><button class="btn btn-primary" type="submit">Save brief</button><button class="btn" id="download-brief" type="button">Download brief</button></div>
+                    <p class="hint">Saved only in this browser. Download a copy to keep or share it.</p>
+                    <p id="brief-result" class="form-result" role="status" aria-live="polite"></p>
+                </form>
+            </section>
+            <aside class="research-context" aria-label="Research capabilities">
+                <section class="readiness"><span class="status-dot" aria-hidden="true"></span><h2>AI execution is not enabled yet</h2><p>Briefs are ready to save. Website extraction, evidence checks and the $25 monthly spending control are the next build stage.</p><p>No paid AI calls run from this page.</p></section>
+                <section id="source-guidance" class="source-guidance" aria-live="polite"><h2>Business websites</h2><p>Research services, locations and published contact details. Keep a source for every result.</p></section>
+                <section class="workflow-note"><h2>From pages to useful answers</h2><ol><li>Choose the question and sources.</li><li>Collect accessible information.</li><li>Extract facts and check their evidence.</li><li>Review uncertain matches before export.</li></ol><p class="hint">AI interprets collected text. It does not unlock blocked websites.</p></section>
+            </aside>
+        </div>
+        <section class="use-cases" aria-labelledby="use-cases-title"><h2 id="use-cases-title">A few places to start</h2><div class="use-case-grid">
+            <button type="button" class="use-case" data-preset="clinics"><strong>Clinic &amp; doctor research</strong><p>Connect published specialties, locations and contact information.</p><small>Use this brief</small></button>
+            <button type="button" class="use-case" data-preset="reddit"><strong>Community research</strong><p>Find recurring product complaints and comparisons in Reddit discussions.</p><small>Use this brief</small></button>
+            <button type="button" class="use-case" data-preset="competitors"><strong>Competitor changes</strong><p>Track published services, pricing and newly announced branches.</p><small>Use this brief</small></button>
+        </div></section>
+    </main>
+</body>
+</html>

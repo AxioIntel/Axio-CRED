@@ -68,6 +68,7 @@ func New(svc *Service, addr string, opts ...Option) (*Server, error) {
 	mux := http.NewServeMux()
 
 	ans.registerLeadRoutes(mux)
+	ans.registerResearchRoutes(mux)
 	ans.registerSaleshandyRoutes(mux)
 	ans.registerWhatsAppRoutes(mux)
 	mux.HandleFunc("GET /metrics", ans.metricsPartial)
@@ -165,10 +166,12 @@ func New(svc *Service, addr string, opts ...Option) (*Server, error) {
 		"static/templates/leads.html",
 		"static/templates/leads_table.html",
 		"static/templates/spec.html",
+		"static/templates/research.html",
+		"static/templates/practo.html",
 	}
 
 	for _, key := range tmplsKeys {
-		tmp, err := template.ParseFS(static, key)
+		tmp, err := template.ParseFS(static, key, "static/templates/sidebar.html")
 		if err != nil {
 			return nil, err
 		}

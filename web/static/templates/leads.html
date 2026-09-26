@@ -7,20 +7,11 @@
     <link rel="stylesheet" href="/static/css/app.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.6/htmx.min.js"></script>
 </head>
-<body>
-    <header class="topbar">
-        <div class="brand">Axio<span>CRED</span> Leads</div>
-        <nav class="tabs">
-            <a href="/">Scrape</a>
-            <a href="/leads" class="active">Leads</a>
-            <a href="/spec">AxioIntel spec</a>
-        </nav>
-        <div class="spacer"></div>
-        <a class="small-link" href="/api/docs" target="_blank" rel="noopener noreferrer">API</a>
-    </header>
+<body class="workspace">
+    {{template "sidebar" "leads"}}
     <div id="metrics" hx-get="/metrics" hx-trigger="load, every 5s" hx-swap="innerHTML"></div>
 
-    <main class="page">
+    <main id="main-content" class="page">
         <div class="tiles">
             <div class="tile"><div class="v">{{.Stats.Total}}</div><div class="k">Leads</div></div>
             <div class="tile"><div class="v">{{.Stats.WithEmail}}</div><div class="k">With an email</div></div>
@@ -99,10 +90,10 @@
                             <option value="opted_in" {{if eq .Filter.WhatsApp "opted_in"}}selected{{end}}>Opted in</option>
                             <option value="sent" {{if eq .Filter.WhatsApp "sent"}}selected{{end}}>Messaged</option>
                         </select>
-                        <select name="source" style="width:auto">
+                        <select name="source" aria-label="Lead source" style="width:auto">
                             <option value="">All sources</option>
-                            <option value="google_maps">Google Maps</option>
-                            <option value="practo">Practo</option>
+                            <option value="google_maps" {{if eq .Filter.Source "google_maps"}}selected{{end}}>Google Maps</option>
+                            <option value="practo" {{if eq .Filter.Source "practo"}}selected{{end}}>Practo</option>
                         </select>
                         {{if .Filter.JobID}}<span class="chip">Job: {{if .JobName}}{{.JobName}}{{else}}{{.Filter.JobID}}{{end}}</span> <a href="/leads" class="faint">show all</a>{{end}}
                     </div>
