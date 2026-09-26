@@ -57,6 +57,7 @@ type Metrics struct {
 	Blocks              gmaps.BlockStats
 	Pending             int
 	Notes               []string
+	Paused              string
 	At                  time.Time
 	Supported           bool
 }
@@ -75,6 +76,15 @@ type metricsState struct {
 	history  []rowSample
 	lastRow  time.Time
 	notes    []string
+	paused   string
+}
+
+// SetPaused shows (or, with "", clears) the lead jobs' pause on the strip.
+func (s *Server) SetPaused(msg string) {
+	s.metrics.mu.Lock()
+	defer s.metrics.mu.Unlock()
+
+	s.metrics.paused = msg
 }
 
 // Note records something the job runner did (a stall recovered, say); the strip shows the last few.
@@ -164,6 +174,7 @@ func (s *Server) sampleMetrics(ctx context.Context) {
 
 	st.mu.Lock()
 	m.Notes = append([]string(nil), st.notes...)
+	m.Paused = st.paused
 	st.last = m
 	st.mu.Unlock()
 }
@@ -289,6 +300,7 @@ var metricsTmpl = template.Must(template.New("metrics").Funcs(template.FuncMap{
 {{else}}<span class="m faint">No job running</span>{{end}}
 {{if .Pending}}<span class="m" title="Jobs waiting">Queue <b>{{.Pending}}</b></span>{{end}}
 <span class="m{{if .Blocks.Recent}} m-hot{{end}}" title="Pages Google refused in the last 10 minutes; each refusal is retried on another browser and slows new page loads">Google blocks <b>{{.Blocks.Recent}}</b> <i>/10 min · {{.Blocks.Total}} total</i>{{if gt .Blocks.Backoff 0}} · slowed <b>{{dur .Blocks.Backoff}}</b>{{end}}</span>
+{{with .Paused}}<span class="m m-note" title="LEADS_PAUSE_WINDOW">⏸ {{.}}</span>{{end}}
 {{range .Notes}}<span class="m m-note">{{.}}</span>{{end}}
 </div>`))
 

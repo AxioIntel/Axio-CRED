@@ -17,6 +17,10 @@
 #   AXIO_CRED_DIR    the repository checkout; default /opt/axio-cred
 #   LEADS_ENV_FILE   secrets for the dashboard; default /etc/axiointel/leads.env (root:docker, 640)
 #                    SALESHANDY_API_KEY=...   turns on "Send to Saleshandy"
+#                    LEADS_PAUSE_WINDOW="08:00-20:00 America/New_York"  no lead job runs in this daily
+#                                             window, and one running when it opens is stopped and
+#                                             queued again: AxioIntel's review collection has the
+#                                             machine during US business hours (26 Sep 2026)
 #                    WHATSAPP_TOKEN=...                 with the two ids below, turns on WhatsApp
 #                    WHATSAPP_PHONE_NUMBER_ID=...       template sending (Meta WhatsApp Cloud API):
 #                    WHATSAPP_BUSINESS_ACCOUNT_ID=...   a system user's token, the sending number's id
