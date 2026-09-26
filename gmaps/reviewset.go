@@ -13,14 +13,17 @@ const defaultReviewCap = 5000
 //
 // An id-less review is never treated as a duplicate of anything, primary or otherwise -- there
 // is nothing to compare it by, and treating two different reviewers' words as "the same review"
-// because both lack an id would be worse than counting one twice.
+// because both lack an id would be worse than counting one twice. For the same reason it is never
+// *counted*: it is kept in `orphans` and written out, but it cannot bring a collection up to the
+// listing's total, and it is not held against the cap. A collection is complete only when the
+// reviews that can be told apart reach the total; AxioIntel's removal detection rests on that.
 type reviewSet struct {
 	primary    []Review
 	primaryIDs map[string]int
 
-	rows      []Review
-	byID      map[string]int
-	withoutID int
+	rows    []Review
+	byID    map[string]int
+	orphans []Review
 
 	cap int
 }
@@ -86,15 +89,17 @@ func (s *reviewSet) has(id string) bool {
 }
 
 // add folds one collected review in. Returns true when it is a genuinely new review -- appended
-// to `rows`, or (an id-less review) always. A duplicate of `primary` or of a row already added
-// enriches that row in place and returns false: it is not new, and it is never appended twice.
-// A new row past the cap is refused; an enrichment past the cap still happens.
+// to `rows`. An id-less review is kept aside in `orphans` and returns false: nothing can say it is
+// new. A duplicate of `primary` or of a row already added enriches that row in place and returns
+// false: it is not new, and it is never appended twice. A new row past the cap is refused; an
+// enrichment past the cap still happens.
 func (s *reviewSet) add(r *Review) bool {
 	if r.ReviewID == "" {
-		s.rows = append(s.rows, *r)
-		s.withoutID++
+		if len(s.orphans) < s.cap {
+			s.orphans = append(s.orphans, *r)
+		}
 
-		return true
+		return false
 	}
 
 	if j, ok := s.primaryIDs[r.ReviewID]; ok {
@@ -140,22 +145,48 @@ func (s *reviewSet) len() int {
 	return len(s.rows)
 }
 
-// distinct is the whole union counted once: primary plus everything found beyond it. What a
-// collection's progress is measured against the place's reported total.
+// distinct is the whole union counted once: primary's reviews that carry an id, plus every id
+// found beyond them. What a collection's progress is measured against the place's reported
+// total. Reviews without an id are not in it (see `orphans`).
 func (s *reviewSet) distinct() int {
 	if s == nil {
 		return 0
 	}
 
-	return len(s.primary) + len(s.rows)
+	return len(s.primaryIDs) + len(s.rows)
+}
+
+// withoutID is how many reviews were kept that carry no id, primary's included: written out,
+// never counted.
+func (s *reviewSet) withoutID() int {
+	if s == nil {
+		return 0
+	}
+
+	n := len(s.orphans)
+
+	for i := range s.primary {
+		if s.primary[i].ReviewID == "" {
+			n++
+		}
+	}
+
+	return n
 }
 
 // extended is what belongs in `user_reviews_extended`: everything this set holds beyond primary,
-// in the order it was found.
+// in the order it was found, then the id-less ones.
 func (s *reviewSet) extended() []Review {
 	if s == nil {
 		return nil
 	}
 
-	return s.rows
+	if len(s.orphans) == 0 {
+		return s.rows
+	}
+
+	out := make([]Review, 0, len(s.rows)+len(s.orphans))
+	out = append(out, s.rows...)
+
+	return append(out, s.orphans...)
 }

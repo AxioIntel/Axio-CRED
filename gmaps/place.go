@@ -130,6 +130,7 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		entry.SetExtendedReviews(set.extended())
 
 		report := result.Report
+		report.WithoutID = set.withoutID()
 		report.finalize(set.distinct())
 		entry.ReviewCollection = &report
 

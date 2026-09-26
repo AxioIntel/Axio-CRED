@@ -41,9 +41,11 @@ const (
 type ReviewCollection struct {
 	Reported      int  `json:"reported"`
 	ReportedKnown bool `json:"reported_known"`
-	// Collected is the distinct union of `user_reviews` and `user_reviews_extended`.
+	// Collected is the distinct union of `user_reviews` and `user_reviews_extended`, by review id.
 	Collected int  `json:"collected"`
 	Complete  bool `json:"complete"`
+	// WithoutID counts reviews kept that carry no id: written out, never part of Collected.
+	WithoutID int `json:"without_id,omitempty"`
 
 	StopReason string   `json:"stop_reason"`
 	StopStage  string   `json:"stop_stage,omitempty"`

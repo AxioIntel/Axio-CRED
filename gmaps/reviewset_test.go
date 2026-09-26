@@ -54,16 +54,55 @@ func TestReviewSetSeedingCountsPrimaryOnceInDistinct(t *testing.T) {
 	assert.Equal(t, []Review{{ReviewID: "extra"}}, set.extended())
 }
 
-func TestReviewSetAnIDLessReviewIsNeverADuplicate(t *testing.T) {
+func TestReviewSetAnIDLessReviewIsKeptButNeverCounted(t *testing.T) {
 	set := newReviewSet(nil, 0)
 	added1 := set.add(&Review{Description: "anonymous review one"})
-	added2 := set.add(&Review{Description: "anonymous review one"}) // same text, still counted
+	added2 := set.add(&Review{Description: "anonymous review one"}) // same text: kept twice, counted never
 
-	assert.True(t, added1)
-	assert.True(t, added2)
-	assert.Equal(t, 2, set.len())
-	assert.Equal(t, 2, set.distinct())
+	assert.False(t, added1, "nothing can say an id-less review is new")
+	assert.False(t, added2)
+	assert.Equal(t, 0, set.len())
+	assert.Equal(t, 0, set.distinct())
+	assert.Equal(t, 2, set.withoutID())
+	assert.Len(t, set.extended(), 2, "both are still written out")
 	assert.False(t, set.has("")) // has() never claims an empty id is known
+}
+
+// The 25 Sep audit's case: two copies of an id-less review against a listing of 2 must not read as
+// a complete collection -- a complete one is what AxioIntel's removal detection trusts.
+func TestIDLessReviewsNeverMakeACollectionComplete(t *testing.T) {
+	set := newReviewSet(nil, 0)
+	set.add(&Review{Description: "same words"})
+	set.add(&Review{Description: "same words"})
+
+	report := ReviewCollection{Reported: 2, ReportedKnown: true, StopReason: stopExhausted}
+	report.WithoutID = set.withoutID()
+	report.finalize(set.distinct())
+
+	assert.False(t, report.Complete)
+	assert.Equal(t, stopExhausted, report.StopReason)
+	assert.Equal(t, 0, report.Collected)
+	assert.Equal(t, 2, report.WithoutID)
+}
+
+func TestIDLessReviewsDoNotTakeTheCapFromRealOnes(t *testing.T) {
+	set := newReviewSet(nil, 2)
+	set.add(&Review{Description: "no id"})
+	set.add(&Review{Description: "no id either"})
+
+	assert.True(t, set.add(&Review{ReviewID: "a"}))
+	assert.True(t, set.add(&Review{ReviewID: "b"}))
+	assert.False(t, set.add(&Review{ReviewID: "c"}), "the cap bounds reviews that can be counted")
+	assert.Equal(t, 2, set.distinct())
+	assert.Equal(t, []Review{{ReviewID: "a"}, {ReviewID: "b"}, {Description: "no id"}, {Description: "no id either"}},
+		set.extended())
+}
+
+func TestPrimaryIDLessReviewsAreNotCountedEither(t *testing.T) {
+	set := newReviewSet([]Review{{ReviewID: "p1"}, {Description: "inline, no id"}}, 0)
+
+	assert.Equal(t, 1, set.distinct())
+	assert.Equal(t, 1, set.withoutID())
 }
 
 func TestReviewSetHasChecksPrimaryAndAddedRows(t *testing.T) {
