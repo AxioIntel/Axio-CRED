@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gosom/scrapemate"
-	"github.com/gosom/scrapemate/adapters/fetchers/stealth"
 )
 
 // ReviewConfig is how one run collects reviews. The zero value is today's behaviour: the default
@@ -121,18 +120,18 @@ func newReviewCollector(cfg ReviewConfig, page scrapemate.BrowserPage, mapURL st
 			return extractReviewsFromPage(ctx, page, known, target, limit)
 		}
 	}
-	// With proxies, the HTTP route is one identity per proxy and rotates when refused. Without,
-	// it is the proxy-less client this collector always had -- it calls Google from this machine's
-	// own address, which is why it is never offered when proxies are configured.
+	// The HTTP route is one identity per proxy and rotates when refused. There is no HTTP route
+	// without proxies: review requests never leave from this machine's own address, so a run
+	// without proxies reads reviews only through the place page's own browser (and the DOM).
+	// Proxy lines are checked when the run starts (internal/proxyconfig), so a list that gets
+	// here parses; a failure now is a bug, said loudly, never a route quietly dropped.
 	if len(cfg.Proxies) > 0 {
 		client, err := newIdentityClient(cfg.Proxies, azuretlsTransport{})
 		if err != nil {
-			log.Printf("review HTTP route not offered: %v", err)
+			log.Printf("ERROR review HTTP route not offered, proxies unusable: %v", err)
 		} else {
 			c.http = client
 		}
-	} else {
-		c.http = stealthRPC{client: stealth.New("firefox", nil)}
 	}
 
 	return c
@@ -389,6 +388,10 @@ func (c *reviewCollector) fetchOnePage(ctx context.Context, deadline time.Time, 
 				continue
 			}
 
+			if _, ok := f.(rotatingFetcher); ok {
+				detail = allIdentitiesBlocked + ": " + detail
+			}
+
 			return rpcPage{}, stageOutcome{reason: stopBlocked, detail: detail}, false
 
 		case verdictInvalid:
@@ -486,17 +489,6 @@ func decodePageRPC(result any) (rpcResponse, error) {
 	return resp, nil
 }
 
-// stealthRPC is the proxy-less HTTP route: a browser-shaped TLS client, no cookies, this machine's
-// own address. Offered only when the run has no proxies.
-type stealthRPC struct {
-	client scrapemate.HTTPFetcher
-}
-
-func (s stealthRPC) fetchPage(ctx context.Context, url string) (rpcResponse, error) {
-	resp := s.client.Fetch(ctx, &scrapemate.Job{Method: "GET", URL: url})
-	if resp.Error != nil {
-		return rpcResponse{}, resp.Error
-	}
-
-	return rpcResponse{Status: resp.StatusCode, FinalURL: resp.URL, Body: resp.Body}, nil
-}
+// allIdentitiesBlocked starts a stop detail when Google refused every proxy identity in turn --
+// the whole pool, not one bad proxy. A night of these is what the blocking gate counts.
+const allIdentitiesBlocked = "every proxy identity was refused"

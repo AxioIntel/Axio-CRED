@@ -338,14 +338,13 @@ func TestInlineReviewsCountTowardCompleteness(t *testing.T) {
 	assert.True(t, report.Complete)
 }
 
-func TestWithProxiesTheProxylessRouteIsNeverOffered(t *testing.T) {
+func TestReviewRequestsNeverLeaveFromThisMachinesOwnAddress(t *testing.T) {
 	with := newReviewCollector(ReviewConfig{Proxies: []string{"http://u:p@proxy.example:8080"}}, nil, "https://maps")
 	without := newReviewCollector(ReviewConfig{}, nil, "https://maps")
 
-	_, proxyless := with.http.(stealthRPC)
-	assert.False(t, proxyless, "with proxies, never the route that uses this machine's own address")
-	_, proxyless = without.http.(stealthRPC)
-	assert.True(t, proxyless, "unchanged for runs with no proxies")
+	_, proxied := with.http.(*identityClient)
+	assert.True(t, proxied, "with proxies, the HTTP route is one identity per proxy")
+	assert.Nil(t, without.http, "without proxies there is no HTTP route at all")
 }
 
 func TestNoRouteAtAllIsAnError(t *testing.T) {
