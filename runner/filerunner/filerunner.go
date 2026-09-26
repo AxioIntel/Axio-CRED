@@ -11,6 +11,7 @@ import (
 
 	"github.com/AxioIntel/Axio-CRED/deduper"
 	"github.com/AxioIntel/Axio-CRED/exiter"
+	"github.com/AxioIntel/Axio-CRED/gmaps"
 	"github.com/AxioIntel/Axio-CRED/grid"
 	"github.com/AxioIntel/Axio-CRED/leadsdb"
 	"github.com/AxioIntel/Axio-CRED/runner"
@@ -101,6 +102,7 @@ func (r *fileRunner) Run(ctx context.Context) (err error) {
 			dedup,
 			exitMonitor,
 			r.cfg.ExtraReviews,
+			gmaps.WithReviewConfig(r.reviewConfig()),
 		)
 	} else {
 		seedJobs, err = runner.CreateSeedJobs(
@@ -115,6 +117,7 @@ func (r *fileRunner) Run(ctx context.Context) (err error) {
 			dedup,
 			exitMonitor,
 			r.cfg.ExtraReviews,
+			gmaps.WithReviewConfig(r.reviewConfig()),
 		)
 	}
 
@@ -235,9 +238,10 @@ func (r *fileRunner) setApp() error {
 			opts = append(opts, scrapemateapp.WithJS(
 				scrapemateapp.Headfull(),
 				scrapemateapp.DisableImages(),
+				scrapemateapp.WithUA(gmaps.BrowserUserAgent),
 			))
 		} else {
-			opts = append(opts, scrapemateapp.WithJS(scrapemateapp.DisableImages()))
+			opts = append(opts, scrapemateapp.WithJS(scrapemateapp.DisableImages(), scrapemateapp.WithUA(gmaps.BrowserUserAgent)))
 		}
 	} else {
 		opts = append(opts, scrapemateapp.WithStealth("firefox"))
@@ -266,4 +270,15 @@ func (r *fileRunner) setApp() error {
 	}
 
 	return nil
+}
+
+// reviewConfig is the run's review collection settings. The proxies go with it so the review path
+// knows the operator wants every request to leave through one.
+func (r *fileRunner) reviewConfig() gmaps.ReviewConfig {
+	return gmaps.ReviewConfig{
+		Proxies:    r.cfg.Proxies,
+		Budget:     r.cfg.ReviewBudget,
+		MaxReviews: r.cfg.ReviewMax,
+		PageDelay:  r.cfg.ReviewPageDelay,
+	}
 }

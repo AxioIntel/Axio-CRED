@@ -74,3 +74,22 @@ func TestResolveWithoutConfiguration(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, got)
 }
+
+func TestResolveRefusesAProxyLineARunCouldNotUse(t *testing.T) {
+	t.Parallel()
+
+	for _, line := range []string{
+		"62.164.242.145:8722:alice:s3cret-pass", // the raw ip:port:user:pass form a provider hands out
+		"http://alice:s3cret-pass@host-without-port",
+		"ftp://alice:s3cret-pass@host:21",
+	} {
+		path := filepath.Join(t.TempDir(), "proxies.txt")
+		require.NoError(t, os.WriteFile(path, []byte("http://ok:pw@good.example:8080\n"+line+"\n"), 0o600))
+
+		_, err := proxyconfig.Resolve("", path)
+
+		require.ErrorIs(t, err, proxyconfig.ErrBadProxy, line)
+		require.Contains(t, err.Error(), "line 2")
+		require.NotContains(t, err.Error(), "s3cret-pass", "a proxy line holds a password")
+	}
+}

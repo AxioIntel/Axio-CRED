@@ -44,6 +44,13 @@ type webrunner struct {
 	cancelCurrent context.CancelFunc
 	stalled       map[string]bool
 	attempts      map[string]int
+	// paused are jobs stopped because the pause window opened; they go back in the queue as they
+	// were, without counting as a failed try.
+	paused map[string]bool
+
+	// pause is LEADS_PAUSE_WINDOW (nil: never paused); now is the clock it is read against.
+	pause *pauseWindow
+	now   func() time.Time
 
 	// watchEvery and stallAfter override the watchdog's timing (tests); zero is the default.
 	watchEvery, stallAfter time.Duration
@@ -115,12 +122,18 @@ func New(cfg *runner.Config) (runner.Runner, error) {
 		return nil, err
 	}
 
+	pause, err := parsePauseWindow(os.Getenv("LEADS_PAUSE_WINDOW"))
+	if err != nil {
+		return nil, err
+	}
+
 	ans := webrunner{
 		srv:       srv,
 		svc:       svc,
 		cfg:       cfg,
 		leads:     leadStore,
 		setupMate: defaultSetupMate(cfg),
+		pause:     pause,
 	}
 
 	return &ans, nil
@@ -135,6 +148,12 @@ func (w *webrunner) Run(ctx context.Context) error {
 
 	egroup.Go(func() error {
 		w.watchdog(ctx)
+
+		return nil
+	})
+
+	egroup.Go(func() error {
+		w.pauseWatch(ctx)
 
 		return nil
 	})
@@ -243,12 +262,20 @@ func (w *webrunner) work(ctx context.Context) error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
+			if w.pausedNow() {
+				continue
+			}
+
 			jobs, err := w.svc.SelectPending(ctx)
 			if err != nil {
 				return err
 			}
 
 			for i := range jobs {
+				if w.pausedNow() {
+					break
+				}
+
 				select {
 				case <-ctx.Done():
 					return nil
@@ -630,6 +657,22 @@ func (w *webrunner) watchdog(ctx context.Context) {
 // queue (at most maxStallRetries times), and searches that returned nothing get one retry job.
 func (w *webrunner) afterJob(ctx context.Context, job *web.Job) {
 	w.mu.Lock()
+	paused := w.paused[job.ID]
+	delete(w.paused, job.ID)
+	w.mu.Unlock()
+
+	if paused {
+		job.Status = web.StatusPending
+		if err := w.svc.Update(ctx, job); err != nil {
+			log.Printf("job %s: could not requeue after the pause window opened: %v", job.ID, err)
+		}
+
+		w.note(fmt.Sprintf("%q stopped for the pause window; it continues when lead jobs resume", job.Name))
+
+		return
+	}
+
+	w.mu.Lock()
 	stalled := w.stalled[job.ID]
 	delete(w.stalled, job.ID)
 
@@ -801,5 +844,74 @@ func (w *webrunner) startMate(ctx context.Context, mate mateRunner, seeds []scra
 		return err
 	case <-time.After(grace):
 		return errCloseHung
+	}
+}
+
+func (w *webrunner) clock() time.Time {
+	if w.now != nil {
+		return w.now()
+	}
+
+	return time.Now()
+}
+
+// pausedNow is whether lead jobs are paused now; it keeps the dashboard's banner in step.
+func (w *webrunner) pausedNow() bool {
+	now := w.clock()
+	on := w.pause.active(now)
+
+	if w.srv != nil {
+		if on {
+			w.srv.SetPaused(w.pause.label(now))
+		} else {
+			w.srv.SetPaused("")
+		}
+	}
+
+	return on
+}
+
+// pauseWatch stops the lead job running when the pause window opens; afterJob queues it again.
+func (w *webrunner) pauseWatch(ctx context.Context) {
+	if w.pause == nil {
+		return
+	}
+
+	every := 30 * time.Second
+	if w.watchEvery > 0 {
+		every = w.watchEvery
+	}
+
+	t := time.NewTicker(every)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if !w.pausedNow() {
+				continue
+			}
+
+			w.mu.Lock()
+			id, cancel := w.currentID, w.cancelCurrent
+
+			if id != "" && cancel != nil && !w.paused[id] {
+				if w.paused == nil {
+					w.paused = map[string]bool{}
+				}
+
+				w.paused[id] = true
+			} else {
+				cancel = nil
+			}
+			w.mu.Unlock()
+
+			if cancel != nil {
+				log.Printf("job %s: the pause window opened; stopping it until lead jobs resume", id)
+				cancel()
+			}
+		}
 	}
 }

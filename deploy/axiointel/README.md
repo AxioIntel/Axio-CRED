@@ -1,13 +1,40 @@
 # Collecting for AxioIntel
 
 This folder runs Axio-CRED's collector on a schedule and sends what it collects to AxioIntel.
-For each place in `places.txt`, `collect.sh` opens the public Google Maps listing with the
-collector, using the same arguments Axio-CRED's app uses for an exact Place ID, including
-`-extra-reviews`. It then hands the results to `push_native.py`, AxioIntel's sender, which
-signs them and posts them to `https://axiointel.com/api/ingest/native`.
+`collect.sh` first asks AxioIntel which places to collect, with `fetch_targets.py`; then, for
+each place, it opens the public Google Maps listing with the collector, using the same arguments
+Axio-CRED's app uses for an exact Place ID, including `-extra-reviews`. It hands the results to
+`push_native.py`, AxioIntel's sender, which signs them and posts them to
+`https://axiointel.com/api/ingest/native`.
+
+Asking is a read. AxioIntel never runs, schedules or calls this collector: it answers with a
+list, and this machine decides on its own clock what to do with it.
+
+**Since 26 Sep 2026 this collector is AxioIntel's first source of reviews and Apify its backup**
+(owner's decision). A person's "Pull now", a profile that is due, and a paid audit each mark the
+place *requested*; `collect.sh daemon` polls every two minutes, collects requested places first,
+up to three at once, and sends each one as soon as it is done. AxioIntel waits up to 15 minutes
+for it, then pulls through Apify instead; it also goes straight to Apify while this collector's
+recent speed is under half its usual speed, or while it has sent nothing for 36 hours.
 
 Nothing here reports, flags or appeals a review. The collector reads public pages. AxioIntel
 stores what arrives and never treats it as proof that anyone owns a place.
+
+## Lab mode (the default when nothing is set)
+
+`COLLECTOR_MODE` is `lab` unless set otherwise; production runs `send` (below). Lab mode is for
+trying a change on a list of places without AxioIntel seeing any of it. In lab mode `collect.sh`:
+
+- collects only the places file you give it (`collect.sh places.txt`, or `COLLECTOR_PLACES_FILE`);
+- never asks AxioIntel for targets and never sends it anything, so it needs no secret, and
+  `push_native.py` and `fetch_targets.py` need not be on the machine;
+- keeps every collection in `<work>/<place>/<time>/results.jsonl` and adds one line per place to
+  `<work>/lab/summary.csv` (collected, reported, complete or partial, why it stopped, rotations,
+  blocks, seconds).
+
+The same summary line is written in send mode too (with a `sent` column): it is this machine's
+own record of the collector's speed and coverage, beside the speed AxioIntel measures from what
+arrives. `find_emails.sh` never sends anything, in either mode.
 
 ## Where it runs
 
@@ -33,12 +60,16 @@ A small Linux VM is enough, collecting one place at a time: Ubuntu 24.04, 2 vCPU
    sudo docker build -t axio-cred-collector .
    ```
 
-3. **Fetch AxioIntel's sender** into this folder. It is not copied into this repository, so it
-   cannot drift from the endpoint it talks to. Axio-Backend's tests hold it to that contract.
+3. **Fetch AxioIntel's own programs** into this folder: the sender, and the one that asks what
+   to collect. Neither is copied into this repository, so neither can drift from the endpoint it
+   talks to. Axio-Backend's tests hold both to that contract.
    ```bash
-   gh api -H "Accept: application/vnd.github.raw" repos/AxioIntel/Axio-Backend/contents/scripts/push_native.py > deploy/axiointel/push_native.py
+   for f in push_native.py fetch_targets.py; do
+     gh api -H "Accept: application/vnd.github.raw" \
+       "repos/AxioIntel/Axio-Backend/contents/scripts/$f" > "deploy/axiointel/$f"
+   done
    ```
-   Fetch it again whenever Axio-Backend changes it.
+   Fetch them again whenever Axio-Backend changes them.
 
 4. **Give it the shared secret.** Read the value in Cloud Shell with
    `gcloud secrets versions access latest --secret native-ingest-secret --project axiointel`.
@@ -50,31 +81,73 @@ A small Linux VM is enough, collecting one place at a time: Ubuntu 24.04, 2 vCPU
    Never commit it, never paste it into a chat, and rotate it (a new secret version, then this
    file) if it has been anywhere else.
 
-5. **List the places** to collect, one place ID per line, optionally followed by `owned` or
-   `competitor`.
+5. **Run it once against staging**, and watch the first place come through before production
+   ever sees this machine. `AXIOINTEL_BASE_URL` moves both the question and the answer to
+   another deployment. It is the API's base, ending in `/api` for the site and without it for
+   the Cloud Run service, which answers either way.
+   ```bash
+   sudo AXIOINTEL_BASE_URL=<staging base URL> deploy/axiointel/collect.sh
+   ```
+   Staging needs its own `native-ingest-secret`, and `collector.env` must hold that one while
+   this run is pointed at it. `collect.sh` asks that deployment what it is watching, collects
+   the first place on the list, and posts it back. A profile appears there under `native/<place id>`. A place with a few
+   hundred reviews takes several minutes; the collector's budget is 20 minutes per place. How
+   long each place took is sent with it, and AxioIntel's **Pull speed** screen sets it beside
+   pulls of the same place made from the dashboard.
+
+   To collect a list of your own instead of asking -- to try one particular place, or while a
+   deployment has no targets endpoint yet -- name it:
    ```bash
    cp deploy/axiointel/places.example.txt deploy/axiointel/places.txt
+   sudo COLLECTOR_PLACES_FILE=deploy/axiointel/places.txt deploy/axiointel/collect.sh
    ```
 
-6. **Run it once by hand**, and watch the first place come through.
+6. **Run it once against production**, the same way without `AXIOINTEL_BASE_URL`.
    ```bash
    sudo deploy/axiointel/collect.sh
    ```
-   A profile appears in AxioIntel under `native/<place id>`. A place with a few hundred reviews
-   takes several minutes; the collector's budget is 20 minutes per place. How long each place
-   took is sent with it, and AxioIntel's **Pull speed** screen sets it beside pulls of the same
-   place made from the dashboard.
 
-7. **Schedule it.** Once a day is plenty for most places.
+7. **Run it as a service.** The daemon polls AxioIntel every `COLLECTOR_POLL_SECONDS` (120),
+   collects requested places first, then places that are due, up to `COLLECTOR_PARALLEL` (3) at
+   once, and never the same place twice at once. A due place that is not requested is collected
+   at most every `COLLECTOR_MIN_INTERVAL_HOURS` (6); a place whose last try failed waits
+   `COLLECTOR_RETRY_MINUTES` (10).
    ```bash
-   echo '30 2 * * * root /path/to/Axio-CRED/deploy/axiointel/collect.sh >> /var/log/axiointel-collect.log 2>&1' | sudo tee /etc/cron.d/axiointel-collect
+   sudo deploy/axiointel/collect.sh install-daemon   # systemd unit axio-collector, restarts on failure
+   deploy/axiointel/collect.sh status                # the service and the last 20 summary lines
+   journalctl -u axio-collector -f                   # what it is doing now
    ```
+   Stopping the service (`sudo systemctl stop axio-collector`) stops its containers too. Rolling
+   back is AxioIntel's `COLLECTION_PRIMARY=apify`; the service may keep sending meanwhile.
 
 ## Proxies
 
 Google rate-limits a single datacenter IP address that loads many listings. Put one proxy URL
 per line in a root-owned file and set `COLLECTOR_PROXIES_FILE=/etc/axiointel/proxies.txt` in
 `collector.env`. The log is scrubbed of proxy credentials after every run.
+
+Use ISP or residential proxies, five to ten of them. Google refuses datacenter addresses on the
+review endpoint (a 403 on every page), which is what the coverage audit of 9 September 2026 saw.
+
+With proxies set, every review request goes through one. The browser takes the first proxy. The
+collector's own review requests start at the second and move to the next whenever Google refuses
+one (a 403, a 429, a `/sorry/` page or a CAPTCHA), asking for the same page again. Each proxy keeps
+its own browser signature, user agent and cookies, and nothing carries over from one to the next.
+When every proxy has been refused, the collector scrolls the public page for whatever is left,
+and reports `blocked` if that falls short too. A proxy line that does not parse turns the review
+requests off altogether: the collector never falls back to this machine's own address.
+
+## What it collects
+
+`collect.sh` asks AxioIntel, every run, which places it is watching: every public place a
+workspace watches or the house still holds, once each however many sources have read it, with
+the one that has waited longest first. A list edited by hand here would go stale the moment a
+workspace watched something new, so there is none to keep up to date.
+
+The question is signed with the same secret as a push, so the collector carries one credential.
+If AxioIntel answers `401` the secret here is not the one it holds, or this machine's clock is
+more than five minutes out; if it answers `503`, that deployment has no secret configured. Both
+are printed in full and the run stops without collecting.
 
 ## What it keeps
 
@@ -89,6 +162,37 @@ When the collector times out or exits with an error, whatever it gathered is sti
 marked incomplete. AxioIntel then stores those reviews without treating the ones it lacks as
 removed. When the collector finds fewer distinct reviews than the listing shows, the sender
 also marks the collection incomplete, and for the same reason.
+
+The collector also reports on each place itself, as `review_collection` in `results.jsonl`, and
+`collect.sh` logs it as one line:
+
+```
+2026-09-25T02:41:07Z ChIJ...: 1169/1169 reviews, complete (done, stage -, 1 rotation(s), 1 block(s))
+```
+
+Anything it does not call complete is sent as incomplete, even when the container exited cleanly.
+`stop_reason` says why it stopped:
+
+| `stop_reason` | Meaning |
+| --- | --- |
+| `done` | Every page was read, and the reviews reach the listing's count. |
+| `exhausted` | The listing ran out of pages short of its count. Google's count includes reviews it does not show. |
+| `blocked` | Google refused every proxy, and scrolling the public page did not make up the rest. |
+| `budget` | The collector's own clock ran out. What it had is kept. |
+| `cap` | The most reviews one place keeps was reached (`-review-max`, default 5,000). |
+| `parse_error` | Google changed the shape of its review pages. Rotating proxies does not fix this; the parser needs updating. |
+| `count_unknown` | The listing's review count could not be read, although it shows reviews. Never complete. |
+| `no_reviews` | The listing has no reviews. |
+
+## Sizing the time budgets
+
+Two clocks apply. `COLLECTOR_TIMEOUT_SECONDS` (default 900, inside AxioIntel's 15-minute wait)
+is when `collect.sh` kills the container. The collector's own review clock, `-review-budget`, is set four minutes under it, so
+that a slow place is still written out as a partial collection rather than killed and lost. At
+the default pace a place takes roughly a second per 20 reviews: about 3 minutes for 1,169 reviews
+and 11 minutes for 5,000. A larger listing arrives partial, which AxioIntel never reads as
+removals, and the next pass finishes it; raising `COLLECTOR_TIMEOUT_SECONDS` past 900 means a
+person pulling such a place is served by Apify first. The review clock follows. Pass `-review-max` to the image as well to keep more than 5,000 per place.
 
 ## Exit status
 

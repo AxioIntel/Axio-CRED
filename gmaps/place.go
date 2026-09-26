@@ -2,6 +2,7 @@ package gmaps
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -23,6 +24,8 @@ type PlaceJob struct {
 	ExitMonitor             exiter.Exiter
 	ExtractExtraReviews     bool
 	WriterManagedCompletion bool
+	// ReviewConfig is how the extended review collection runs; the zero value is the defaults.
+	ReviewConfig ReviewConfig
 }
 
 func NewPlaceJob(parentID, langCode, u string, extractEmail, extraExtraReviews bool, opts ...PlaceJobOptions) *PlaceJob {
@@ -57,6 +60,12 @@ func NewPlaceJob(parentID, langCode, u string, extractEmail, extraExtraReviews b
 func WithPlaceJobExitMonitor(exitMonitor exiter.Exiter) PlaceJobOptions {
 	return func(j *PlaceJob) {
 		j.ExitMonitor = exitMonitor
+	}
+}
+
+func WithPlaceJobReviewConfig(cfg ReviewConfig) PlaceJobOptions {
+	return func(j *PlaceJob) {
+		j.ReviewConfig = cfg
 	}
 }
 
@@ -109,26 +118,25 @@ func (j *PlaceJob) Process(_ context.Context, resp *scrapemate.Response) (any, [
 		entry.Link = j.GetURL()
 	}
 
-	// Handle RPC-based reviews
-	allReviewsRaw, ok := resp.Meta["reviews_raw"].(FetchReviewsResponse)
-	if ok && len(allReviewsRaw.pages) > 0 {
-		entry.AddExtraReviews(allReviewsRaw.pages)
-	}
-
-	// Handle DOM-based reviews (fallback)
-	domReviews, ok := resp.Meta["dom_reviews"].([]DOMReview)
-	if ok && len(domReviews) > 0 {
-		convertedReviews := ConvertDOMReviewsToReviews(domReviews)
-
-		deduped := dedupeDOMReviewsAgainstPrimary(entry.UserReviews, convertedReviews)
-		deduped = dedupeDOMReviewsAgainstPrimary(entry.UserReviewsExtended, deduped)
-
-		if len(deduped) != len(convertedReviews) {
-			log.Printf("DOM reviews: dropped %d of %d already present in user_reviews",
-				len(convertedReviews)-len(deduped), len(convertedReviews))
+	// The extended review collection, merged against the inline reviews once (`reviewSet`: a
+	// review both carry is enriched in place, never stored twice), and its report settled against
+	// that union.
+	if result, ok := resp.Meta["review_result"].(*reviewResult); ok {
+		set := newReviewSet(entry.UserReviews, j.ReviewConfig.withDefaults().MaxReviews)
+		for i := range result.Rows {
+			set.add(&result.Rows[i])
 		}
 
-		entry.UserReviewsExtended = append(entry.UserReviewsExtended, deduped...)
+		entry.SetExtendedReviews(set.extended())
+
+		report := result.Report
+		report.WithoutID = set.withoutID()
+		report.finalize(set.distinct())
+		entry.ReviewCollection = &report
+
+		log.Printf("reviews: %d of %d collected (%s%s), stages %v, %d rpc pages, %d blocks, %.0fs",
+			report.Collected, report.Reported, report.StopReason, stageSuffix(report.StopStage),
+			report.Stages, report.RPCPages, report.Blocks, report.ElapsedSeconds)
 	}
 
 	if j.ExtractEmail && entry.IsWebsiteValidForEmail() {
@@ -169,10 +177,10 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 		return resp
 	}
 
-	if refusedByResponse(pageResponse.StatusCode, page.URL()) {
+	if why := placeBlocked(pageResponse.StatusCode, page.URL()); why != "" {
 		Blocks.Refused()
 
-		resp.Error = ErrGoogleBlocked
+		resp.Error = fmt.Errorf("%w: %w: %s", ErrGoogleBlocked, errPlaceBlocked, why)
 
 		return resp
 	}
@@ -211,27 +219,12 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 	resp.Meta["json"] = raw
 
 	if j.ExtractExtraReviews {
-		reviewCount := j.getReviewCount(raw)
-		if reviewCount > 0 { // download reviews for any place that has them
-			params := fetchReviewsParams{
-				page:        page,
-				mapURL:      page.URL(),
-				reviewCount: reviewCount,
-			}
-
-			// Use the new fallback mechanism that tries RPC first, then DOM
-			rpcData, domReviews, err := FetchReviewsWithFallback(ctx, params)
-
-			if err != nil {
-				fmt.Printf("Warning: review extraction failed: %v\n", err)
-			}
-
-			if len(rpcData.pages) > 0 {
-				resp.Meta["reviews_raw"] = rpcData
-			}
-
-			if len(domReviews) > 0 {
-				resp.Meta["dom_reviews"] = domReviews
+		reported := j.getReviewCount(raw)
+		if reported > 0 || placeShowsReviews(raw) {
+			resp.Meta["review_result"] = newReviewCollector(j.ReviewConfig, page, page.URL()).run(ctx, reported)
+		} else {
+			resp.Meta["review_result"] = &reviewResult{
+				Report: ReviewCollection{StopReason: stopNoReviews, Stages: []string{}},
 			}
 		}
 	}
@@ -324,6 +317,51 @@ func (j *PlaceJob) getReviewCount(data []byte) int {
 	}
 
 	return tmpEntry.ReviewCount
+}
+
+// errPlaceBlocked: Google refused the place page itself -- no review stage can start.
+var errPlaceBlocked = errors.New("place page blocked")
+
+// placeBlocked says why a loaded place page is a refusal, or "" when it is not.
+func placeBlocked(status int, finalURL string) string {
+	switch {
+	case strings.Contains(finalURL, "/sorry/"):
+		return "redirected to Google's /sorry/ page"
+	case status == 403 || status == 429:
+		return fmt.Sprintf("HTTP %d", status)
+	}
+
+	return ""
+}
+
+// placeShowsReviews is whether a listing whose review count could not be read still shows
+// reviews -- inline ones, or a per-star breakdown. Such a place is collected and reported
+// `count_unknown`, never skipped as having none.
+func placeShowsReviews(raw []byte) bool {
+	entry, err := EntryFromJSON(raw)
+	if err != nil {
+		return false
+	}
+
+	if len(entry.UserReviews) > 0 {
+		return true
+	}
+
+	for _, n := range entry.ReviewsPerRating {
+		if n > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func stageSuffix(stage string) string {
+	if stage == "" {
+		return ""
+	}
+
+	return " in " + stage
 }
 
 func (j *PlaceJob) UseInResults() bool {

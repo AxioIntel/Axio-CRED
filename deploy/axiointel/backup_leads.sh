@@ -29,6 +29,13 @@
 #   RCLONE_CONFIG_FILE      default /etc/axiointel/rclone.conf (root, 600), for such a remote
 #   LEADS_BACKUP_KEEP_DAYS  default 30 (remotes other than the bucket)
 #   LEADS_BACKUP_LOCAL      default /var/backups/axio-leads
+#   LEADS_BACKUP_SOURCE     what this machine is called in the backups; default the host name
+#
+# Layout, so a folder of backups says what came from where:
+#   <remote>/<source>/<YYYY-MM>/<YYYY-MM-DD>/
+#       leads_<source>_<YYYY-MM-DD>.db.gz          the lead list (SQLite, gzip)
+#       saleshandy-config_<source>_<YYYY-MM-DD>.json  which campaigns leads may go into
+#       RECEIPT_<source>_<YYYY-MM-DD>.txt           what is inside: counts, checksums, versions
 set -euo pipefail
 
 if [ -r /etc/axiointel/backup.env ]; then
@@ -43,6 +50,7 @@ CONF="${RCLONE_CONFIG_FILE:-/etc/axiointel/rclone.conf}"
 KEY="${GCS_KEY_FILE:-/etc/axiointel/gcs-backup.json}"
 BUCKET="${LEADS_BACKUP_BUCKET:-}"
 REMOTE="${LEADS_BACKUP_REMOTE:-}"
+SOURCE="${LEADS_BACKUP_SOURCE:-$(hostname -s)}"
 KEEP_DAYS="${LEADS_BACKUP_KEEP_DAYS:-30}"
 LOCAL="${LEADS_BACKUP_LOCAL:-/var/backups/axio-leads}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -104,14 +112,20 @@ else
   exit 1
 fi
 [ -f "$DATA/leads.db" ] || { echo "no lead list at $DATA/leads.db" >&2; exit 1; }
+case "$SOURCE" in
+  *[!A-Za-z0-9._-]* | "") echo "LEADS_BACKUP_SOURCE may hold only letters, digits, . _ -" >&2; exit 1 ;;
+esac
 
-stamp=$(date -u +%Y-%m-%d)
-mkdir -p "$LOCAL"
+day=$(date -u +%Y-%m-%d)
+rel="$SOURCE/${day:0:7}/$day"
+dir="$LOCAL/$rel"
+mkdir -p "$dir"
 chmod 700 "$LOCAL"
-copy="$LOCAL/leads-$stamp.db"
+db="$dir/leads_${SOURCE}_$day.db"
+receipt="$dir/RECEIPT_${SOURCE}_$day.txt"
 
 # SQLite's online backup: a consistent copy even while the dashboard is writing to the list.
-python3 - "$DATA/leads.db" "$copy" <<'PY'
+python3 - "$DATA/leads.db" "$db" <<'PY'
 import sqlite3, sys
 src = sqlite3.connect(sys.argv[1])
 dst = sqlite3.connect(sys.argv[2])
@@ -125,14 +139,58 @@ if ok != "ok":
 print(leads, "leads copied")
 PY
 
-gzip -f "$copy"
-[ -f "$DATA/saleshandy.json" ] && cp "$DATA/saleshandy.json" "$LOCAL/saleshandy-$stamp.json"
+# The receipt: what this backup holds, read from the copy itself.
+python3 - "$db" "$receipt" "$SOURCE" "$DATA" "$(git -c safe.directory='*' -C "$HERE" log -1 --format='%h %s' 2>/dev/null || echo unknown)" <<'PY'
+import datetime, os, socket, sqlite3, sys
+db, out, source, data, version = sys.argv[1:6]
+d = sqlite3.connect(db)
+one = lambda q: d.execute(q).fetchone()[0]
+cols = {r[1] for r in d.execute("PRAGMA table_info(leads)")}
+lines = [
+    "AxioCRED lead list backup",
+    "",
+    "Source           " + source + " (host " + socket.gethostname() + ")",
+    "Taken            " + datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+    "From             " + os.path.join(data, "leads.db"),
+    "Dashboard build  " + version,
+    "",
+    "Leads            " + str(one("SELECT count(*) FROM leads")),
+    "  with email     " + str(one("SELECT count(*) FROM leads WHERE emails <> ''")),
+    "  with phone     " + str(one("SELECT count(*) FROM leads WHERE phone <> ''")),
+    "  sent to Saleshandy  " + str(one("SELECT count(*) FROM leads WHERE saleshandy_at > 0")),
+]
+if "wa_opt_in_at" in cols:
+    lines.append("  WhatsApp opted in   " + str(one("SELECT count(*) FROM leads WHERE wa_opt_in_at > 0 AND wa_opt_out_at = 0")))
+lines.append("Jobs that found them  " + str(one("SELECT count(DISTINCT job_id) FROM lead_jobs")))
+lines += ["", "By status"]
+lines += ["  %-16s %d" % r for r in d.execute("SELECT status, count(*) FROM leads GROUP BY status ORDER BY 2 DESC")]
+lines += ["", "By source"]
+lines += ["  %-16s %d" % r for r in d.execute("SELECT source, count(*) FROM leads GROUP BY source ORDER BY 2 DESC")]
+d.close()
+with open(out, "w") as f:
+    f.write("\n".join(lines) + "\n")
+PY
 
-"${RCLONE[@]}" copy "$LOCAL" "$DEST" \
-  --include "leads-$stamp.db.gz" --include "saleshandy-$stamp.json"
+gzip -f "$db"
+if [ -f "$DATA/saleshandy.json" ]; then
+  cp "$DATA/saleshandy.json" "$dir/saleshandy-config_${SOURCE}_$day.json"
+fi
+
+{
+  echo
+  echo "Files (sha256)"
+  (cd "$dir" && sha256sum -- *.gz *.json 2>/dev/null | sed 's/^/  /')
+  echo
+  echo "Restore: gunzip leads_${SOURCE}_$day.db.gz, stop the dashboard, and put the file at"
+  echo "$DATA/leads.db (see docs: axiocred/lead-engine)."
+} >>"$receipt"
+
+"${RCLONE[@]}" copy "$dir" "$DEST/$rel"
 if [ "$PRUNE" = 1 ]; then
-  "${RCLONE[@]}" delete "$DEST" --min-age "${KEEP_DAYS}d"
+  "${RCLONE[@]}" delete "$DEST/$SOURCE" --min-age "${KEEP_DAYS}d"
+  "${RCLONE[@]}" rmdirs "$DEST/$SOURCE" --leave-root
 fi
 find "$LOCAL" -type f -mtime +7 -delete
+find "$LOCAL" -mindepth 1 -type d -empty -delete
 
-echo "$(date -u +%FT%TZ) backed up leads-$stamp.db.gz ($(du -h "$copy.gz" | cut -f1)) to ${REMOTE:-gs://$BUCKET/leads}"
+echo "$(date -u +%FT%TZ) backed up $rel ($(du -h "$db.gz" | cut -f1)) to ${REMOTE:-gs://$BUCKET/leads}"

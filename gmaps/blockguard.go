@@ -122,9 +122,9 @@ var blockMarkers = []string{
 	"/sorry/index",
 }
 
-// refusedByResponse is a refusal visible from the response alone.
+// refusedByResponse is a refusal visible from the response alone (see placeBlocked).
 func refusedByResponse(status int, url string) bool {
-	return status == 429 || status == 403 || strings.Contains(url, "google.com/sorry") || strings.Contains(url, "/sorry/index")
+	return placeBlocked(status, url) != ""
 }
 
 // refusedByContent is a refusal visible only in the page: Google often serves its "unusual
