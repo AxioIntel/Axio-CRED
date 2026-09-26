@@ -30,7 +30,7 @@ const (
 
 // What a block page says, in any of the forms Google has served one. Matched case-insensitively
 // against the start of a body that did not carry the reviews prefix.
-var blockMarkers = []string{"unusual traffic", "/sorry/", "g-recaptcha", "captcha"}
+var rpcBlockMarkers = []string{"unusual traffic", "/sorry/", "g-recaptcha", "captcha"}
 
 // classifyRPC reads one response as ok, blocked, transient or invalid, with a short detail safe to
 // write into the results. It never reads a 200 as ok on the status alone: a block page is often
@@ -64,7 +64,7 @@ func classifyRPC(resp rpcResponse, err error) (verdict rpcVerdict, detail string
 		}
 
 		lower := strings.ToLower(string(head))
-		for _, marker := range blockMarkers {
+		for _, marker := range rpcBlockMarkers {
 			if strings.Contains(lower, marker) {
 				return verdictBlocked, "block page (" + marker + ")"
 			}

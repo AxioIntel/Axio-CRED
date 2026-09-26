@@ -176,10 +176,10 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 		return resp
 	}
 
-	if refusedByResponse(pageResponse.StatusCode, page.URL()) {
+	if why := placeBlocked(pageResponse.StatusCode, page.URL()); why != "" {
 		Blocks.Refused()
 
-		resp.Error = ErrGoogleBlocked
+		resp.Error = fmt.Errorf("%w: %w: %s", ErrGoogleBlocked, errPlaceBlocked, why)
 
 		return resp
 	}
@@ -194,14 +194,6 @@ func (j *PlaceJob) BrowserActions(ctx context.Context, page scrapemate.BrowserPa
 	resp.URL = pageResponse.URL
 	resp.StatusCode = pageResponse.StatusCode
 	resp.Headers = pageResponse.Headers
-
-	// A refused place page is said as a refusal, now, rather than as a minute of polling for page
-	// data that never comes and then "APP_INITIALIZATION_STATE data not found".
-	if why := placeBlocked(pageResponse.StatusCode, page.URL()); why != "" {
-		resp.Error = fmt.Errorf("%w: %s", errPlaceBlocked, why)
-
-		return resp
-	}
 
 	raw, err := j.extractJSON(page)
 	if err != nil {
