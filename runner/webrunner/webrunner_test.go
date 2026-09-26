@@ -4,6 +4,7 @@ package webrunner
 import (
 	"context"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -78,15 +79,24 @@ func (m fakeMate) Close() error {
 	return nil
 }
 
+// memoryJobRepo is the job table in memory. Locked: the runner writes it from its own goroutines
+// while a test reads it.
 type memoryJobRepo struct {
+	mu   sync.Mutex
 	jobs map[string]web.Job
 }
 
 func (r *memoryJobRepo) Get(_ context.Context, id string) (web.Job, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	return r.jobs[id], nil
 }
 
 func (r *memoryJobRepo) Create(_ context.Context, job *web.Job) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if r.jobs == nil {
 		r.jobs = make(map[string]web.Job)
 	}
@@ -97,11 +107,18 @@ func (r *memoryJobRepo) Create(_ context.Context, job *web.Job) error {
 }
 
 func (r *memoryJobRepo) Delete(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	delete(r.jobs, id)
+
 	return nil
 }
 
 func (r *memoryJobRepo) Select(_ context.Context, params web.SelectParams) ([]web.Job, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	jobs := make([]web.Job, 0, len(r.jobs))
 
 	for id := range r.jobs {
@@ -115,6 +132,10 @@ func (r *memoryJobRepo) Select(_ context.Context, params web.SelectParams) ([]we
 }
 
 func (r *memoryJobRepo) Update(_ context.Context, job *web.Job) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	r.jobs[job.ID] = *job
+
 	return nil
 }
